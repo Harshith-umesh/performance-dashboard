@@ -97,7 +97,7 @@ def test_performance_analysis():
 Tests are automatically run in CI/CD pipeline:
 
 ```yaml
-# .gitlab-ci.yml
+# .github/workflows/ci.yml
 test:
   stage: test
   script:

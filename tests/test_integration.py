@@ -201,7 +201,7 @@ class TestDataQuality:
         assert (sample_csv_data["output_tok/sec"] > 0).all()
 
         # TP sizes should be valid
-        valid_tp_sizes = [1, 2, 4, 8, 16, 32, 64]
+        valid_tp_sizes = [1, 2, 4, 8]
         assert sample_csv_data["TP"].isin(valid_tp_sizes).all()
 
         # Error rate should be 0-100%

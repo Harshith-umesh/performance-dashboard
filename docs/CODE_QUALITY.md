@@ -82,34 +82,71 @@ The following hooks run on every commit:
 2. **End-of-file fixer**
 3. **YAML/JSON validation**
 4. **Ruff linting and formatting**
-5. **Black formatting**
-6. **mypy type checking**
-7. **Docstring checking**
+5. **mypy type checking**
+6. **Bandit security scanning**
+7. **pydocstyle docstring checking**
+8. **Prettier formatting** (YAML/Markdown)
 
-## GitLab CI/CD Pipeline
+## GitHub Actions CI/CD Workflow
 
-The pipeline includes the following stages:
+The CI/CD pipeline is defined in `.github/workflows/ci.yml` and runs automatically on:
 
-### Lint Stage
+- **Push** to `main` or `develop` branches
+- **Pull requests** targeting `main` or `develop`
+- **Manual trigger** via workflow_dispatch
 
-- **format-check**: Validates code formatting
-- **ruff-lint**: Runs comprehensive linting
-- **isort-check**: Validates import sorting
-- **type-check**: Runs static type checking
-- **complexity-check**: Analyzes code complexity
-- **docs-check**: Validates docstrings
+### Workflow Jobs
 
-### Security Stage
+The workflow includes the following parallel jobs:
 
-- **security-scan**: Scans for security vulnerabilities
+#### 1. Lint & Format Check (`lint`)
 
-### Test Stage
+Runs all pre-commit hooks to validate code quality:
 
-- **test**: Runs pytest with coverage reporting
+- **Trailing whitespace** removal
+- **End of file** fixes
+- **YAML/TOML validation**
+- **Ruff linting** with auto-fixes
+- **Ruff formatting** (Python code formatter)
+- **mypy** type checking
+- **Bandit** security scanning
+- **pydocstyle** docstring validation (Google convention)
+- **Prettier** for YAML/Markdown formatting
 
-### Build Stage
+**Status**: Required - PR cannot merge if this fails
 
-- **build-docker**: Builds Docker image (manual trigger)
+#### 2. Type Check (`type-check`)
+
+Runs mypy static type checking:
+
+- Generates JUnit XML report
+- Uploads `mypy-report.xml` as artifact
+- **Status**: Advisory only (continues on error)
+
+#### 3. Test & Coverage (`test`)
+
+Runs the test suite with coverage reporting:
+
+- Executes pytest with coverage
+- Generates coverage reports (XML, HTML, terminal)
+- Uploads coverage to Codecov (if configured)
+- Uploads coverage artifacts for review
+- **Status**: Required - PR cannot merge if tests fail
+
+#### 4. Documentation Check (`docs-check`)
+
+Validates Python docstrings:
+
+- Checks Google-style docstring format
+- Ensures all public modules/functions documented
+- **Status**: Advisory only (continues on error)
+
+### Viewing CI Results
+
+1. Navigate to the **Actions** tab in the GitHub repository
+2. Select the workflow run to view job details
+3. Click on individual jobs to see logs and artifacts
+4. Download artifacts (test reports, coverage) from the job summary page
 
 ## Customizing Rules
 
@@ -160,4 +197,7 @@ ignore = [
    mypy . --verbose
    ```
 
-3. Check GitLab CI logs for specific error details
+3. Check GitHub Actions logs for specific error details:
+   - Go to the **Actions** tab in the repository
+   - Click on the failed workflow run
+   - Review individual job logs for detailed error messages

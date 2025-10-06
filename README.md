@@ -56,7 +56,7 @@ performance-dashboard/
 1. **Clone the repository**:
 
    ```bash
-   git clone https://gitlab.cee.redhat.com/psap/performance-dashboard.git
+   git clone https://github.com/openshift-psap/performance-dashboard.git
    cd performance-dashboard
    ```
 
@@ -70,7 +70,7 @@ performance-dashboard/
 
 3. **Add your data**:
    - Place your `consolidated_dashboard.csv` in the root directory
-   - Use the scripts in `scripts/` to process new benchmark data
+   - Use the utilities in `manual_runs/scripts/` to process new benchmark data
 
 4. **Run the dashboard**:
 
@@ -288,7 +288,7 @@ make lint
 git add .
 git commit -m "Add feature"
 
-# 6. Push and create MR
+# 6. Push and create a Pull request against main
 git push origin feature/my-feature
 ```
 

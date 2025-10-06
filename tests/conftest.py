@@ -26,7 +26,7 @@ def sample_csv_data():
             "vLLM-0.10.1",
             "sglang-0.5.2",
         ],
-        "TP": [4, 4, 8, 8, 16],
+        "TP": [1, 2, 4, 8, 1],
         "prompt toks": [1000, 1000, 512, 512, 2048],
         "output toks": [1000, 1000, 2048, 2048, 128],
         "intended concurrency": [10, 10, 20, 20, 30],
@@ -45,11 +45,11 @@ def sample_csv_data():
         "errored_requests": [5, 2, 3, 1, 4],
         "error_rate": [5.0, 2.0, 3.0, 1.0, 4.0],
         "runtime_args": [
-            "tensor-parallel-size: 4",
+            "tensor-parallel-size: 1",
+            "tensor-parallel-size: 2",
             "tensor-parallel-size: 4",
             "tensor-parallel-size: 8",
-            "tensor-parallel-size: 8",
-            "tensor-parallel-size: 16",
+            "tensor-parallel-size: 1",
         ],
     }
     return pd.DataFrame(data)

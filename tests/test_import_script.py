@@ -6,6 +6,12 @@ from unittest.mock import mock_open, patch
 import pandas as pd
 import pytest
 
+# Import the actual functions to test
+from manual_runs.scripts.import_manual_run_jsons import (
+    parse_guidellm_json,
+    process_benchmark_section,
+)
+
 
 class TestProcessBenchmarkSection:
     """Test the process_benchmark_section function."""
@@ -388,3 +394,279 @@ class TestEdgeCases:
         # Should use defaults or skip
         safe_value = value if value is not None else 0.0
         assert safe_value == 0.0
+
+
+class TestActualFunctionIntegration:
+    """Integration tests that actually call the imported functions."""
+
+    def test_process_benchmark_section_with_sample_data(
+        self, integration_benchmark_data
+    ):
+        """Test process_benchmark_section with sample data."""
+        result = process_benchmark_section(
+            benchmark_run=integration_benchmark_data,
+            accelerator="H200",
+            model_name="test-model",
+            version="vLLM-0.10.0",
+            tp_size=4,
+            runtime_args="tensor-parallel-size: 4",
+            benchmark_index=0,
+        )
+
+        # Verify returned data structure
+        assert isinstance(result, dict)
+        assert "run" in result
+        assert "accelerator" in result
+        assert "model" in result
+        assert "version" in result
+        assert "TP" in result
+        assert "output_tok/sec" in result
+
+        # Verify values
+        assert result["accelerator"] == "H200"
+        assert result["model"] == "test-model"
+        assert result["version"] == "vLLM-0.10.0"
+        assert result["TP"] == 4
+        assert result["prompt toks"] == 1000
+        assert result["output toks"] == 1000
+        assert result["output_tok/sec"] == 150.5
+
+    def test_process_benchmark_section_multiple_indexes(
+        self, integration_benchmark_data
+    ):
+        """Test process_benchmark_section with different benchmark indexes."""
+        # Test index 0
+        result_0 = process_benchmark_section(
+            integration_benchmark_data, "H200", "test", "v1", 2, "tp: 2", 0
+        )
+        assert result_0["intended concurrency"] == 10
+
+        # Test index 1
+        result_1 = process_benchmark_section(
+            integration_benchmark_data, "H200", "test", "v1", 2, "tp: 2", 1
+        )
+        assert result_1["intended concurrency"] == 20
+
+        # Test index 2
+        result_2 = process_benchmark_section(
+            integration_benchmark_data, "H200", "test", "v1", 2, "tp: 2", 2
+        )
+        assert result_2["intended concurrency"] == 30
+
+    def test_parse_guidellm_json_with_mock_file(self, integration_benchmark_json):
+        """Test parse_guidellm_json with mocked file I/O."""
+        # Create JSON content from fixture
+        json_content = json.dumps(integration_benchmark_json)
+
+        # Mock the file reading in the actual module
+        with patch(
+            "manual_runs.scripts.import_manual_run_jsons.open",
+            mock_open(read_data=json_content),
+        ):
+            result = parse_guidellm_json(
+                json_path="fake_path.json",
+                accelerator="MI300X",
+                model_name="meta-llama/Llama-3.1-8B",
+                version="vLLM-0.10.1",
+                tp_size=8,
+                runtime_args="tensor-parallel-size: 8; dtype: float16",
+            )
+
+        # Verify DataFrame returned
+        assert isinstance(result, pd.DataFrame)
+        assert len(result) > 0
+
+        # Verify DataFrame has expected columns
+        expected_columns = [
+            "run",
+            "accelerator",
+            "model",
+            "version",
+            "TP",
+            "output_tok/sec",
+            "ttft_p95",
+            "itl_p95",
+        ]
+        for col in expected_columns:
+            assert col in result.columns, f"Missing column: {col}"
+
+        # Verify data values
+        assert result["accelerator"].iloc[0] == "MI300X"
+        assert result["model"].iloc[0] == "meta-llama/Llama-3.1-8B"
+        assert result["version"].iloc[0] == "vLLM-0.10.1"
+        assert result["TP"].iloc[0] == 8
+
+    def test_parse_guidellm_json_empty_benchmarks(self):
+        """Test parse_guidellm_json with empty benchmarks list."""
+        json_content = json.dumps({"benchmarks": []})
+
+        with patch(
+            "manual_runs.scripts.import_manual_run_jsons.open",
+            mock_open(read_data=json_content),
+        ):
+            with patch("builtins.print"):  # Suppress print statements
+                result = parse_guidellm_json(
+                    "fake.json", "H200", "model", "v1", 4, "tp: 4"
+                )
+
+        # Should return None for empty benchmarks
+        assert result is None
+
+    def test_parse_guidellm_json_missing_benchmarks_key(self):
+        """Test parse_guidellm_json with missing benchmarks key."""
+        json_content = json.dumps({"some_other_key": "value"})
+
+        with patch(
+            "manual_runs.scripts.import_manual_run_jsons.open",
+            mock_open(read_data=json_content),
+        ):
+            with patch("builtins.print"):  # Suppress print statements
+                result = parse_guidellm_json(
+                    "fake.json", "H200", "model", "v1", 4, "tp: 4"
+                )
+
+        # Should return None when benchmarks key is missing
+        assert result is None
+
+    def test_parse_guidellm_json_file_not_found(self):
+        """Test parse_guidellm_json with non-existent file."""
+        with patch(
+            "manual_runs.scripts.import_manual_run_jsons.open",
+            side_effect=FileNotFoundError(),
+        ):
+            with patch("builtins.print"):  # Suppress print statements
+                result = parse_guidellm_json(
+                    "nonexistent.json", "H200", "model", "v1", 4, "tp: 4"
+                )
+
+        # Should return None for file not found
+        assert result is None
+
+    def test_parse_guidellm_json_invalid_json(self):
+        """Test parse_guidellm_json with invalid JSON content."""
+        invalid_json = "{ invalid json content"
+
+        with patch(
+            "manual_runs.scripts.import_manual_run_jsons.open",
+            mock_open(read_data=invalid_json),
+        ):
+            with patch("builtins.print"):  # Suppress print statements
+                result = parse_guidellm_json(
+                    "invalid.json", "H200", "model", "v1", 4, "tp: 4"
+                )
+
+        # Should return None for invalid JSON
+        assert result is None
+
+
+# Module-level fixtures for integration tests
+@pytest.fixture
+def integration_benchmark_data():
+    """Sample benchmark data matching actual function expectations."""
+    return {
+        "run_id": "test-uuid-integration",
+        "args": {
+            "profile": {
+                "streams": [10, 20, 30],
+                "measured_rates": [100, 200, 300],
+                "measured_concurrencies": [10, 20, 30],
+            }
+        },
+        "request_loader": {
+            "data": json.dumps({"prompt_tokens": 1000, "output_tokens": 1000})
+        },
+        "run_stats": {
+            "requests_made": {"successful": 95, "errored": 5},
+            "total_time": 60.0,
+        },
+        "metrics": {
+            "output_tokens_per_second": {
+                "successful": {"mean": 150.5, "std": 10.2, "median": 148.0}
+            },
+            "inter_token_latency_ms": {
+                "successful": {
+                    "p50": 10.0,
+                    "p95": 20.0,
+                    "p99": 30.0,
+                    "mean": 15.0,
+                }
+            },
+            "time_to_first_token_ms": {
+                "successful": {
+                    "p50": 30.0,
+                    "p95": 50.0,
+                    "p99": 70.0,
+                    "mean": 40.0,
+                }
+            },
+            "request_latency": {
+                "successful": {
+                    "p50": 500.0,
+                    "p95": 800.0,
+                    "p99": 1000.0,
+                    "median": 500.0,
+                    "max": 1200.0,
+                }
+            },
+            "tokens_per_second": {"successful": {"mean": 300.0, "median": 295.0}},
+        },
+    }
+
+
+@pytest.fixture
+def integration_benchmark_json():
+    """Sample JSON structure matching actual function expectations."""
+    return {
+        "benchmarks": [
+            {
+                "run_id": "test-uuid-json",
+                "args": {
+                    "profile": {
+                        "streams": [10],
+                        "measured_rates": [100],
+                        "measured_concurrencies": [10],
+                    }
+                },
+                "request_loader": {
+                    "data": json.dumps({"prompt_tokens": 512, "output_tokens": 2048})
+                },
+                "run_stats": {
+                    "requests_made": {"successful": 98, "errored": 2},
+                    "total_time": 60.0,
+                },
+                "metrics": {
+                    "output_tokens_per_second": {
+                        "successful": {"mean": 200.3, "std": 12.5, "median": 198.0}
+                    },
+                    "inter_token_latency_ms": {
+                        "successful": {
+                            "p50": 8.0,
+                            "p95": 15.0,
+                            "p99": 20.0,
+                            "mean": 10.5,
+                        }
+                    },
+                    "time_to_first_token_ms": {
+                        "successful": {
+                            "p50": 25.0,
+                            "p95": 40.0,
+                            "p99": 50.0,
+                            "mean": 30.0,
+                        }
+                    },
+                    "request_latency": {
+                        "successful": {
+                            "p50": 400.0,
+                            "p95": 700.0,
+                            "p99": 900.0,
+                            "median": 400.0,
+                            "max": 1000.0,
+                        }
+                    },
+                    "tokens_per_second": {
+                        "successful": {"mean": 400.0, "median": 395.0}
+                    },
+                },
+            }
+        ]
+    }

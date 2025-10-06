@@ -29,6 +29,7 @@ spec:
 
       containers:
         - name: dashboard
+          # TODO: Replace <your quay username> with your actual Quay.io username or organization
           image: quay.io/<your quay username>/rhaiis-dashboard:latest
           imagePullPolicy: Always
 
