@@ -2,7 +2,7 @@
 
 ## Overview
 
-Comprehensive test suite for the Performance Dashboard with covering data processing, import scripts, styling, and integration workflows.
+Comprehensive test suite for the Performance Dashboard covering data processing, import scripts, styling, and integration workflows.
 
 ## Test Structure
 
