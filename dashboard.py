@@ -3807,10 +3807,13 @@ def render_performance_plots_section(filtered_df, use_expander=True):
                 "Throughput (Output tokens/second generated)": "output_tok/sec",
                 "Efficiency (Output tokens/sec per TP unit)": "efficiency_ratio",
                 "Inter-Token Latency P95 (Time between tokens)": "itl_p95",
+                "Inter-Token Latency Median (Time between tokens)": "itl_median",
                 "Time to First Token P95 (Response start delay)": "ttft_p95_s",
+                "Time to First Token Median (Response start delay)": "ttft_median_s",
                 "Request Latency Median (Total request processing time)": "request_latency_median",
                 "Request Latency Max (Maximum request processing time)": "request_latency_max",
                 "Time Per Output Token P95 (Token generation time)": "tpot_p95",
+                "Time Per Output Token Median (Token generation time)": "tpot_median",
                 "Total Throughput (Total tokens/second processed)": "total_tok/sec",
                 "Request Count (Successful completions)": "successful_requests",
                 "Error Rate (% Failed requests)": "error_rate",
@@ -3854,9 +3857,9 @@ def render_performance_plots_section(filtered_df, use_expander=True):
 
         # Add units to y-axis label for certain metrics
         y_axis_display_label = y_axis_label
-        if y_axis == "ttft_p95_s":
+        if y_axis in ("ttft_p95_s", "ttft_median_s"):
             y_axis_display_label = f"{y_axis_label} (s)"
-        elif y_axis == "itl_p95" or y_axis == "tpot_p95":
+        elif y_axis in ("itl_p95", "itl_median", "tpot_p95", "tpot_median"):
             y_axis_display_label = f"{y_axis_label} (ms)"
         elif y_axis == "request_latency_median" or y_axis == "request_latency_max":
             y_axis_display_label = f"{y_axis_label} (s)"
@@ -10283,22 +10286,23 @@ def render_runtime_configs_section(filtered_df, use_expander=True):
                 "**Runtime configurations for your current filter selections:**"
             )
             st.info(
-                "📊 **Column Legend**: Shows the server runtime arguments used for each Model + Accelerator + Version combination that matches your current filters."
+                "📊 **Column Legend**: Shows the server runtime arguments used for each Model + Accelerator + Version + TP combination that matches your current filters."
             )
 
             unique_configs = filtered_df.drop_duplicates(
-                subset=["model", "accelerator", "version"]
+                subset=["model", "accelerator", "version", "TP"]
             )
 
             if not unique_configs.empty:
                 display_runtime_df = unique_configs[
-                    ["model", "accelerator", "version", "runtime_args"]
+                    ["model", "accelerator", "version", "TP", "runtime_args"]
                 ].copy()
                 display_runtime_df = display_runtime_df.rename(
                     columns={
                         "model": "Model",
                         "accelerator": "Accelerator",
                         "version": "Version",
+                        "TP": "TP",
                         "runtime_args": "Runtime Arguments",
                     }
                 )
@@ -10338,6 +10342,7 @@ def render_runtime_configs_section(filtered_df, use_expander=True):
                             "Model",
                             "Accelerator",
                             "Version",
+                            "TP",
                             "Runtime Arguments",
                         ]
                     ],
@@ -10357,6 +10362,7 @@ def render_runtime_configs_section(filtered_df, use_expander=True):
                         "Version": st.column_config.TextColumn(
                             "Version", width=120, pinned=True
                         ),
+                        "TP": st.column_config.NumberColumn("TP", width=60),
                         "Runtime Arguments": st.column_config.TextColumn(
                             "Runtime Args", width=1800
                         ),
@@ -10366,7 +10372,7 @@ def render_runtime_configs_section(filtered_df, use_expander=True):
                 options = [
                     (
                         i,
-                        f"Config {r['Config #']} – {r['Model']} / {r['Accelerator']} / {r['Version']}",
+                        f"Config {r['Config #']} – {r['Model']} / {r['Accelerator']} / {r['Version']} / TP{r['TP']}",
                     )
                     for i, r in df.iterrows()
                 ]
@@ -10604,6 +10610,10 @@ def render_filtered_data_section(filtered_df, use_expander=True):
                 "dashboard_id": "cd77e3aa2b40e0",
                 "dashboard_name": "vllm-2b-dcgm-metrics-rhaiis-ibm-dc-h200",
             },
+            "H200_HERA2": {
+                "dashboard_id": "psap-hera-dashboard",
+                "dashboard_name": "vllm-2b-dcgm-metrics-psap-hera-h200",
+            },
             "MI300X": {
                 "dashboard_id": "amd-ods-az-amd-01",
                 "dashboard_name": "vllm-2b-rocm-gpu-metrics-ods-az-amd-01",
@@ -10623,6 +10633,13 @@ def render_filtered_data_section(filtered_df, use_expander=True):
                 return False
             upper = run_name.upper()
             return upper.startswith("H200-HERA-") or upper.startswith("H200_HERA-")
+
+        def _is_hera2_run(run_name):
+            """Check if a run belongs to the H200 Hera2 cluster."""
+            if not isinstance(run_name, str):
+                return False
+            upper = run_name.upper()
+            return upper.startswith("H200-HERA2-") or upper.startswith("H200_HERA2-")
 
         def create_grafana_link(row):
             """Create Grafana dashboard link if timestamps are available."""
@@ -10646,7 +10663,9 @@ def render_filtered_data_section(filtered_df, use_expander=True):
                 end_ms = int(end_time)
 
                 # Determine which dashboard to use based on accelerator, cluster, and date
-                if _is_hera_run(run_name):
+                if _is_hera2_run(run_name):
+                    dashboard_key = "H200_HERA2"
+                elif _is_hera_run(run_name):
                     dashboard_key = "H200_HERA"
                 elif accelerator == "H200":
                     if start_ms >= H200_DASHBOARD_CUTOFF_MS:
@@ -11607,6 +11626,10 @@ def main():
         df["ttft_p95_s"] = df["ttft_p95"] / 1000
     else:
         df["ttft_p95_s"] = np.nan
+    if "ttft_median" in df.columns:
+        df["ttft_median_s"] = df["ttft_median"] / 1000
+    else:
+        df["ttft_median_s"] = np.nan
 
     if "url_filters_loaded" not in st.session_state:
         st.session_state.url_filters_loaded = True
