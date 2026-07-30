@@ -10774,6 +10774,16 @@ def render_filtered_data_section(filtered_df, use_expander=True):
             },
         }
 
+        _SGLANG_H200_DASHBOARD = {
+            "dashboard_id": "sglang-dcgm-metrics-psap-rhaiis-h200",
+            "dashboard_name": "sglang-2b-dcgm-metrics-psap-rhaiis-h200",
+            "extra_params": "&var-cluster_name=$__all&var-model_name=$__all",
+        }
+        SGLANG_GRAFANA_DASHBOARDS = {
+            "H200": _SGLANG_H200_DASHBOARD,
+            "H200_HERA2": _SGLANG_H200_DASHBOARD,
+        }
+
         # Jan 1, 2026 00:00:00 UTC in milliseconds
         H200_DASHBOARD_CUTOFF_MS = 1767225600000
 
@@ -10798,6 +10808,7 @@ def render_filtered_data_section(filtered_df, use_expander=True):
             uuid = row.get("uuid")
             accelerator = row.get("accelerator", "")
             run_name = row.get("run", "")
+            version = row.get("version", "")
 
             # Only create link if all required fields are present and not NaN
             if (
@@ -10827,7 +10838,23 @@ def render_filtered_data_section(filtered_df, use_expander=True):
                 else:
                     return None
 
-                dashboard_config = GRAFANA_DASHBOARDS[dashboard_key]
+                is_sglang = isinstance(version, str) and version.lower().startswith(
+                    "sglang"
+                )
+                if is_sglang:
+                    sglang_key = dashboard_key
+                    if (
+                        sglang_key not in SGLANG_GRAFANA_DASHBOARDS
+                        and sglang_key.startswith("H200")
+                    ):
+                        sglang_key = "H200"
+                    if sglang_key in SGLANG_GRAFANA_DASHBOARDS:
+                        dashboard_config = SGLANG_GRAFANA_DASHBOARDS[sglang_key]
+                    else:
+                        return None
+                else:
+                    dashboard_config = GRAFANA_DASHBOARDS[dashboard_key]
+
                 dashboard_id = dashboard_config["dashboard_id"]
                 dashboard_name = dashboard_config["dashboard_name"]
                 extra_params = dashboard_config.get("extra_params", "")
