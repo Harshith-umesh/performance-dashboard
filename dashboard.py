@@ -4767,6 +4767,27 @@ def render_pareto_plots_section(preloaded_df=None, use_expander=True):
                     },
                 )
 
+        # Sync Pareto filters to URL (runs inside @st.fragment).
+        # Fragment reruns do not reach the main() URL sync, so the browser
+        # URL would otherwise stay frozen at the last full-page values.
+        _pareto_url_params = {}
+        _pareto_keys = {
+            "par_model": "pareto_model_select",
+            "par_versions": "pareto_version_select",
+            "par_profile": "pareto_isl_osl_select",
+            "par_hw": "pareto_hw_select",
+            "par_tput": "pareto_throughput_metric",
+        }
+        for url_key, ss_key in _pareto_keys.items():
+            val = st.session_state.get(ss_key)
+            if val is not None:
+                if isinstance(val, list):
+                    _pareto_url_params[url_key] = ",".join(map(str, val))
+                else:
+                    _pareto_url_params[url_key] = str(val)
+        with contextlib.suppress(Exception):
+            st.query_params.update(_pareto_url_params)
+
 
 @st.fragment
 def render_performance_trends_section(df: pd.DataFrame, use_expander=True) -> None:
