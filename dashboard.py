@@ -4491,7 +4491,9 @@ def render_pareto_plots_section(preloaded_df=None, use_expander=True):
                     hovermode="closest",
                     showlegend=True,
                     legend={
-                        "title": "Model | Version | Accelerator (Config)",
+                        "title": "Model | Version | Accelerator (Config)"
+                        if len(unique_models_in_results) > 1
+                        else "Version | Accelerator (Config)",
                         "font": {"size": 12},
                     },
                     height=600,
@@ -4640,7 +4642,9 @@ def render_pareto_plots_section(preloaded_df=None, use_expander=True):
                     hovermode="closest",
                     showlegend=True,
                     legend={
-                        "title": "Model | Version | Accelerator (Config)",
+                        "title": "Model | Version | Accelerator (Config)"
+                        if len(unique_models_in_results) > 1
+                        else "Version | Accelerator (Config)",
                         "font": {"size": 12},
                     },
                     height=600,
@@ -11480,6 +11484,7 @@ def main():
             url_section_filters = {}
 
             MULTISELECT_SESSION_KEYS = {
+                "pareto_model_select",
                 "pareto_version_select",
                 "trends_versions_multi",
                 "trends_tp_multi",
