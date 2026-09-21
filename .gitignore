@@ -198,6 +198,9 @@ htmlcov/
 # Temporary files
 *.tmp
 *.bak
+
+# Local cluster-specific OpenShift manifests; keep environment details out of the public repo.
+/deploy-staging/
 *.orig
 
 # Data files (if sensitive)
