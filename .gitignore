@@ -198,6 +198,9 @@ coverage.xml
 htmlcov/
 
 # Temporary files
+
+# Local cluster-specific OpenShift manifests; keep environment details out of the public repo.
+/deploy-prod/
 *.tmp
 *.bak
 *.orig
