@@ -36,7 +36,7 @@ python import_manual_runs_json_v2.py <json_file> \
 | -------------------- | -------- | ----------------------------------------------- | --------------------------------------- |
 | `json_file`          | Yes      | Path to guidellm JSON output file               | `llama-70b-vllm.json`                   |
 | `--model`            | Yes      | Model name (HuggingFace format)                 | `meta-llama/Llama-3.3-70B-Instruct`     |
-| `--version`          | Yes      | Framework/version identifier                    | `vLLM-0.13.0`, `TRT-LLM-1.2.0rc2.post1` |
+| `--version`          | Yes      | Framework version, optionally suffixed with a run label | `vLLM-0.13.0`, `vLLM-0.28.0-pcon-mnbt` |
 | `--tp`               | Yes      | Tensor parallelism size                         | `4`, `8`                                |
 | `--accelerator`      | Yes      | GPU/accelerator type                            | `H200`, `MI300X`, `TPU`                 |
 | `--runtime-args`     | Yes      | Server runtime configuration                    | See examples below                      |
@@ -46,6 +46,10 @@ python import_manual_runs_json_v2.py <json_file> \
 | `--dataset`          | No       | Real dataset name (for real-dataset runs)       | `mlperf-gpt-oss`, `sharegpt`            |
 | `--spec-decoding`    | No       | Speculative decoding method used                | `eagle3`, `ngram`                       |
 | `--prefix-caching`   | No       | Whether prefix caching was enabled              | `yes`, `no`                             |
+
+For labeled runs, include the label suffix in `--version` (for example,
+`--version vLLM-0.28.0-pcon-mnbt`). The dashboard derives the release and label
+from that existing value; the importer does not add a CSV column.
 
 ## Examples
 
@@ -116,11 +120,22 @@ python import_manual_runs_json_v2.py \
 
 ## Appending to Consolidated Dashboard
 
-After generating a CSV file, append it to the main dashboard (skip the header):
+To add the results to an existing dashboard CSV, pass the dashboard CSV as the
+importer's `--csv-file` value. The importer aligns its output to the dashboard
+column order before rewriting the combined file:
 
 ```bash
-tail -n +2 my-benchmark.csv >> ../../../consolidated_dashboard.csv
+python import_manual_runs_json_v2.py \
+  my-benchmark.json \
+  --model "<model>" \
+  --version "<version>" \
+  --tp <tp> \
+  --accelerator "<accelerator>" \
+  --csv-file ../../../consolidated_dashboard.csv
 ```
+
+Use the importer to append rows rather than appending CSV lines manually, so
+values remain aligned with the dashboard column order.
 
 ## Output CSV Columns
 
@@ -131,7 +146,7 @@ The script outputs 53 columns compatible with the performance dashboard:
 | 1   | `run`                     | Unique run identifier (`{accelerator}-{model}-{tp}`) |
 | 2   | `accelerator`             | GPU type (H200, MI300X, etc.)                        |
 | 3   | `model`                   | Model name                                           |
-| 4   | `version`                 | Framework version                                    |
+| 4   | `version`                 | Framework version, optionally suffixed with a run label |
 | 5   | `prompt toks`             | Configured prompt token count                        |
 | 6   | `output toks`             | Configured output token count                        |
 | 7   | `TP`                      | Tensor parallelism size                              |

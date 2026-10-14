@@ -38,7 +38,7 @@ def process_benchmark_section(
         benchmark: Benchmark data from JSON (guidellm 0.5.x format).
         accelerator: Accelerator type (e.g., H200, MI300X).
         model_name: Name of the AI model.
-        version: Version of the inference server.
+        version: Server version, optionally with a dashboard label suffix.
         tp_size: Tensor parallelism size (None for DP runs).
         runtime_args: Runtime configuration arguments.
         global_data_config: Global data configuration from top-level args.
@@ -243,7 +243,7 @@ def parse_guidellm_json(
         json_path: Path to the JSON file.
         accelerator: Accelerator type.
         model_name: Name of the AI model.
-        version: Version of the inference server.
+        version: Server version, optionally with a dashboard label suffix.
         tp_size: Tensor parallelism size (None for DP runs).
         runtime_args: Runtime configuration arguments.
         image_tag: Container image tag used for the run.
@@ -367,7 +367,10 @@ def main():
     parser.add_argument(
         "--version",
         required=True,
-        help="Version/framework identifier (e.g., 'vLLM-0.13.0')",
+        help=(
+            "Version/framework identifier. Include an optional label suffix here "
+            "(e.g., 'vLLM-0.28.0-pcon-mnbt')."
+        ),
     )
     parser.add_argument(
         "--tp",

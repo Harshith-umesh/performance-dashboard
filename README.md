@@ -202,7 +202,8 @@ See [Code Quality Documentation](docs/CODE_QUALITY.md) for detailed information.
 
    ```bash
    # Build the container image with your data
-   podman build -f Dockerfile.openshift -t quay.io/your-username/rhaiis-dashboard:latest .
+   podman build -f Dockerfile.openshift \
+     -t quay.io/your-username/rhaiis-dashboard:latest .
 
    # Push to your container registry
    podman push quay.io/your-username/rhaiis-dashboard:latest
@@ -242,7 +243,8 @@ When you have code changes:
 1. **Rebuild the image** with updated code:
 
    ```bash
-   podman build -f Dockerfile.openshift -t quay.io/your-username/rhaiis-dashboard:latest .
+   podman build -f Dockerfile.openshift \
+     -t quay.io/your-username/rhaiis-dashboard:latest .
    podman push quay.io/your-username/rhaiis-dashboard:latest
    ```
 
@@ -400,6 +402,8 @@ streamlit run dashboard.py
 ### Data Requirements
 
 - **CSV Format**: Must include columns for model, version, accelerator, TP, metrics
+- **Run Labels**: Labels are derived in memory from existing version values; no producer-side `label` column is required. Known values such as `vLLM-0.24.0-pcon` are displayed as release `vLLM-0.24.0` with label `pcon`, while plain releases use the `default` label and the original composite value remains available as `legacy_version`.
+- **Run IDs**: UUIDs are available under Advanced Filters for execution-level inspection; labels are the normal configuration-level distinction.
 - **Runtime Args**: Semicolon-separated key-value pairs
 - **Benchmark Profiles**: Support for different prompt/output token configurations
 
