@@ -405,6 +405,7 @@ streamlit run dashboard.py
 - **Run Labels**: Labels are derived in memory from existing version values; no producer-side `label` column is required. Known values such as `vLLM-0.24.0-pcon` are displayed as release `vLLM-0.24.0` with label `pcon`, while plain releases use the `default` label and the original composite value remains available as `legacy_version`.
 - **Run IDs**: UUIDs are available under Advanced Filters for execution-level inspection; labels are the normal configuration-level distinction.
 - **Runtime Args**: Semicolon-separated key-value pairs
+- **Environment Variables**: Optional `env_vars` JSON column, shown with runtime arguments for RHAIIS configurations
 - **Benchmark Profiles**: Support for different prompt/output token configurations
 
 ## Contributing
