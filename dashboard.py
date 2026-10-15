@@ -4134,11 +4134,22 @@ def render_performance_plots_section(filtered_df, per_turn_df=None, use_expander
         filtered_df_sorted["display_label"] = filtered_df_sorted["label"].map(
             display_label
         )
+        _has_env_vars = (
+            "env_vars" in filtered_df_sorted.columns
+            and filtered_df_sorted["env_vars"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .ne("")
+            .any()
+        )
         _plot_custom_data = [
             "uuid",
             "display_label",
             "runtime_args_preview",
         ]
+        if _has_env_vars:
+            _plot_custom_data.append("env_vars_preview")
         if "runtime_args" not in filtered_df_sorted.columns:
             filtered_df_sorted["runtime_args"] = ""
 
@@ -4203,9 +4214,48 @@ def render_performance_plots_section(filtered_df, per_turn_df=None, use_expander
             )
             return preview if len(preview) <= 800 else preview[:797] + "..."
 
+        def _env_vars_preview(value):
+            """Format JSON environment variables as safe, readable hover text."""
+            if value is None:
+                return "None configured"
+            if not isinstance(value, (dict, list)) and pd.isna(value):
+                return "None configured"
+            if isinstance(value, str):
+                raw_value = value.strip()
+                if not raw_value:
+                    return "None configured"
+                try:
+                    parsed_value = json.loads(raw_value)
+                except (json.JSONDecodeError, TypeError):
+                    return html.escape(raw_value)
+            else:
+                parsed_value = value
+
+            if isinstance(parsed_value, dict):
+                lines = []
+                for key, env_value in parsed_value.items():
+                    value_text = (
+                        env_value
+                        if isinstance(env_value, str)
+                        else json.dumps(env_value, ensure_ascii=False)
+                    )
+                    lines.append(
+                        f"{html.escape(str(key))}: {html.escape(value_text)}"
+                    )
+                preview = "<br>".join(lines)
+            else:
+                preview = html.escape(
+                    json.dumps(parsed_value, ensure_ascii=False)
+                )
+            return preview if len(preview) <= 800 else preview[:797] + "..."
+
         filtered_df_sorted["runtime_args_preview"] = filtered_df_sorted[
             "runtime_args"
         ].map(_runtime_args_preview)
+        if _has_env_vars:
+            filtered_df_sorted["env_vars_preview"] = filtered_df_sorted[
+                "env_vars"
+            ].map(_env_vars_preview)
 
         plot_df = filtered_df_sorted
         if _is_turn_view:
@@ -4215,6 +4265,13 @@ def render_performance_plots_section(filtered_df, per_turn_df=None, use_expander
             per_turn_plot_df["runtime_args_preview"] = per_turn_plot_df[
                 "runtime_args"
             ].map(_runtime_args_preview)
+            if _has_env_vars:
+                env_vars = per_turn_plot_df.get(
+                    "env_vars", pd.Series("", index=per_turn_plot_df.index)
+                )
+                per_turn_plot_df["env_vars_preview"] = env_vars.map(
+                    _env_vars_preview
+                )
             per_turn_plot_df["run_identifier"] += " | C=" + per_turn_plot_df[
                 "intended concurrency"
             ].apply(lambda value: str(int(value)) if pd.notna(value) else "?")
@@ -4428,13 +4485,18 @@ def render_performance_plots_section(filtered_df, per_turn_df=None, use_expander
                 trace.opacity = float(first_row["line_opacity"])
                 trace.legendgroup = first_row["run_identifier"]
                 trace.name = first_row["legend_label"]
-                trace.hovertemplate = (
+                hovertemplate = (
                     f"{plot_x_label}: %{{x}}<br>"
                     f"{y_axis_display_label}: %{{y}}<br>"
                     "Label: %{customdata[1]}<br>"
                     "UUID: %{customdata[0]}<br>"
-                    "Runtime Args:<br>%{customdata[2]}<extra></extra>"
+                    "Runtime Args:<br>%{customdata[2]}"
                 )
+                if _has_env_vars:
+                    hovertemplate += (
+                        "<br>Environment Variables:<br>%{customdata[3]}"
+                    )
+                trace.hovertemplate = hovertemplate + "<extra></extra>"
 
         _legend_parts = "Accelerator | Model | Version | TP"
         if _has_dp_data:
