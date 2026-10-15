@@ -401,6 +401,7 @@ streamlit run dashboard.py
 
 - **CSV Format**: Must include columns for model, version, accelerator, TP, metrics
 - **Runtime Args**: Semicolon-separated key-value pairs
+- **Environment Variables**: Optional `env_vars` JSON column, shown with runtime arguments for RHAIIS configurations
 - **Benchmark Profiles**: Support for different prompt/output token configurations
 
 ## Contributing
