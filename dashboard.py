@@ -4149,8 +4149,8 @@ def render_performance_plots_section(filtered_df, per_turn_df=None, use_expander
                     st.query_params["pp_turn_conc"] = ",".join(
                         str(int(c)) for c in turn_conc
                     )
-        except Exception:  # noqa: BLE001
-            pass  # Outside Streamlit session context — no-op
+        except st.errors.StreamlitAPIException:
+            return  # Query params are unavailable outside an active Streamlit run.
 
 
 def load_pareto_data(csv_file_path, preloaded_df=None):
