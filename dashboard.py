@@ -6,7 +6,9 @@ across different models, versions, and hardware configurations.
 
 import base64
 import contextlib
+import html
 import io
+import json
 import logging
 import os
 import sys
@@ -28,7 +30,6 @@ from dashboard_styles import (
     initialize_session_state,
     initialize_streamlit_config,
 )
-from env_vars import format_env_vars_hover, normalize_env_vars_value
 
 # Set global Plotly template: white background with white hover labels
 _light_hover = go.layout.Template(
@@ -3778,6 +3779,49 @@ def render_dataset_representation_section(selected_profile, use_expander=True):
                     st.error("Could not generate histograms from the dataset.")
 
 
+def _normalize_env_vars_value(value):
+    """Normalize missing and whitespace-only environment-variable values."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    try:
+        if pd.isna(value):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    return str(value).strip()
+
+
+def _format_env_vars_hover(value):
+    """Format environment variables as safe, readable Plotly hover text."""
+    normalized_value = _normalize_env_vars_value(value)
+    if not normalized_value:
+        return "None configured"
+
+    try:
+        parsed_value = json.loads(normalized_value)
+    except (json.JSONDecodeError, TypeError):
+        preview = html.escape(normalized_value)
+    else:
+        if isinstance(parsed_value, dict):
+            lines = []
+            for key, env_value in parsed_value.items():
+                value_text = (
+                    env_value
+                    if isinstance(env_value, str)
+                    else json.dumps(env_value, ensure_ascii=False)
+                )
+                lines.append(f"{html.escape(str(key))}: {html.escape(value_text)}")
+            preview = "<br>".join(lines)
+        else:
+            preview = html.escape(json.dumps(parsed_value, ensure_ascii=False))
+
+    return preview if len(preview) <= 800 else preview[:797] + "..."
+
+
 @st.fragment
 def render_performance_plots_section(filtered_df, per_turn_df=None, use_expander=True):
     """📊 Performance Plots Section - Complete functionality from original."""
@@ -3840,7 +3884,7 @@ def render_performance_plots_section(filtered_df, per_turn_df=None, use_expander
         filtered_df_sorted = filtered_df.sort_values(_sort_cols).copy()
         if "env_vars" in filtered_df_sorted.columns:
             filtered_df_sorted["env_vars_preview"] = filtered_df_sorted["env_vars"].map(
-                format_env_vars_hover
+                _format_env_vars_hover
             )
 
         def _env_vars_hover_data(plot_data):
@@ -3850,7 +3894,7 @@ def render_performance_plots_section(filtered_df, per_turn_df=None, use_expander
             ):
                 return None
             has_values = (
-                plot_data["env_vars"].map(normalize_env_vars_value).ne("").any()
+                plot_data["env_vars"].map(_normalize_env_vars_value).ne("").any()
             )
             return {"env_vars_preview": True} if has_values else None
 
@@ -3860,7 +3904,7 @@ def render_performance_plots_section(filtered_df, per_turn_df=None, use_expander
             per_turn_plot_df = per_turn_df.copy()
             if "env_vars" in per_turn_plot_df.columns:
                 per_turn_plot_df["env_vars_preview"] = per_turn_plot_df["env_vars"].map(
-                    format_env_vars_hover
+                    _format_env_vars_hover
                 )
             per_turn_plot_df["run_identifier"] = (
                 per_turn_plot_df["accelerator"].fillna("?")
@@ -10256,7 +10300,7 @@ def render_runtime_configs_section(filtered_df, use_expander=True):
             has_environment_variables = "env_vars" in config_source.columns
             if has_environment_variables:
                 config_source["env_vars"] = config_source["env_vars"].map(
-                    normalize_env_vars_value
+                    _normalize_env_vars_value
                 )
                 has_environment_variables = config_source["env_vars"].ne("").any()
             config_keys = ["model", "accelerator", "version", "TP"]
