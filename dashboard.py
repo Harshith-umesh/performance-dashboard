@@ -42,8 +42,12 @@ from dashboard_taxonomy import (
     display_version_label,
     encode_query_mapping,
     is_valid_hex_color,
+    latest_run_rows,
     normalize_taxonomy_columns,
+    parse_accelerator_values,
     parse_filter_values,
+    parse_version_filter_values,
+    run_identity,
     split_legacy_version,
     sync_selected_options,
     taxonomy_query_params,
@@ -6642,8 +6646,8 @@ def render_compare_versions_summary_section(df, use_expander=True):
                     )
             return sorted(configs)
 
-        def _slice_by_config(df, model, config):
-            """Return rows matching model and config tuple."""
+        def _slice_by_config(df, model, config, latest_only=True):
+            """Return one model/config slice, selecting its latest run by default."""
             model_data = df[df["model"] == model]
             ptype, pval = config[0], config[1]
             if ptype == "DP" and _has_dp:
@@ -6659,7 +6663,9 @@ def render_compare_versions_summary_section(df, use_expander=True):
                 mask = mask & (model_data["turns"] == turns)
                 mask = mask & (model_data["prefix_tokens"] == pt)
                 mask = mask & (model_data["prefix_count"] == pc)
-            return model_data[mask]
+            # Keep this local: compare_two_datasets is shared by other dashboard sections.
+            rows = model_data[mask]
+            return latest_run_rows(rows) if latest_only else rows
 
         def _config_label(config):
             ptype, pval = config[0], config[1]
@@ -6890,6 +6896,11 @@ def render_compare_versions_summary_section(df, use_expander=True):
                 **Note**: Each accelerator-TP combination is compared independently across all common concurrency levels.
                     """)
         st.markdown(f"**Comparing:** {version_1_display} vs {version_2_display}")
+        st.caption(
+            "Each version/model/configuration uses rows from its latest run "
+            "(newest GuideLLM start time; CSV order is the fallback when timestamps are "
+            "missing). Rows without a run ID or timestamp cannot be separated."
+        )
 
         # Define metrics to compare (AIC mode hides metrics unavailable in AIC data)
         metrics_config = {
@@ -6948,7 +6959,8 @@ def render_compare_versions_summary_section(df, use_expander=True):
 
         get_comparison_result = compare_two_datasets
 
-        # Check for duplicate rows within each comparison slice
+        # Report historical runs separately; only rows from the latest run enter calculations.
+        run_warnings = []
         dup_warnings = []
         _seen_dup_checks = set()
         for model, v1_cfg, v2_cfg in comparison_pairs:
@@ -6960,7 +6972,54 @@ def render_compare_versions_summary_section(df, use_expander=True):
                 if dup_key in _seen_dup_checks:
                     continue
                 _seen_dup_checks.add(dup_key)
-                subset = _slice_by_config(df_check, model, cfg)
+                all_rows = _slice_by_config(df_check, model, cfg, latest_only=False)
+                subset = latest_run_rows(all_rows)
+                run_ids = run_identity(all_rows)
+                latest_run_ids = set(run_identity(subset).tolist())
+                start_times = (
+                    pd.to_numeric(all_rows["guidellm_start_time_ms"], errors="coerce")
+                    if "guidellm_start_time_ms" in all_rows.columns
+                    else pd.Series(float("nan"), index=all_rows.index)
+                )
+                run_stats = (
+                    pd.DataFrame(
+                        {
+                            "run_id": run_ids.to_numpy(),
+                            "start_time": start_times.to_numpy(),
+                            "position": range(len(all_rows)),
+                        }
+                    )
+                    .groupby("run_id", sort=False)
+                    .agg(start_time=("start_time", "max"), position=("position", "max"))
+                )
+                if len(run_stats) > 1:
+                    if run_stats["start_time"].isna().any():
+                        run_stats = run_stats.sort_values("position", kind="stable")
+                    else:
+                        run_stats = run_stats.sort_values(
+                            ["start_time", "position"], kind="stable"
+                        )
+                    m_short = model.split("/")[-1] if "/" in model else model
+                    run_details = []
+                    for run_id, run in run_stats.iterrows():
+                        if pd.notna(run["start_time"]):
+                            started = pd.to_datetime(
+                                int(run["start_time"]), unit="ms", utc=True
+                            ).strftime("%Y-%m-%d %H:%M:%S UTC")
+                        else:
+                            started = "start time unavailable"
+                        run_label = (
+                            "run ID unavailable"
+                            if str(run_id).startswith("legacy:")
+                            else f"run `{run_id}`"
+                        )
+                        status = "used" if run_id in latest_run_ids else "excluded"
+                        run_details.append(f"{started} ({run_label}; {status})")
+                    run_warnings.append(
+                        f"**{ver_name}** — {m_short} ({_config_label(cfg)}): "
+                        + "; ".join(run_details)
+                    )
+
                 conc_counts = subset["intended concurrency"].value_counts()
                 dups = conc_counts[conc_counts > 1]
                 if not dups.empty:
@@ -6970,10 +7029,17 @@ def render_compare_versions_summary_section(df, use_expander=True):
                         f"**{ver_name}** — {m_short} ({_config_label(cfg)}): "
                         f"duplicate rows at concurrency {conc_list}"
                     )
+        if run_warnings:
+            st.warning(
+                "⚠️ **Multiple runs found** — Compare Versions uses only the latest "
+                "matching run; older runs are excluded from the metrics. Run start "
+                "times are shown in UTC.\n\n"
+                + "\n".join(f"- {warning}" for warning in run_warnings)
+            )
         if dup_warnings:
             st.warning(
-                "⚠️ **Duplicate data rows detected** — geometric mean results may be "
-                "skewed. Consider removing duplicates from the CSV.\n\n"
+                "⚠️ **Duplicate rows within the selected latest run detected** — "
+                "geometric mean results may be skewed.\n\n"
                 + "\n".join(f"- {w}" for w in dup_warnings)
             )
 
@@ -12248,6 +12314,12 @@ def main():
             all_models = sorted(df["model"].unique().tolist())
             all_versions = sorted(df["version"].unique().tolist())
             all_labels = sorted(df["label"].unique().tolist())
+            all_version_label_pairs = set(
+                df[["version", "label"]]
+                .drop_duplicates()
+                .astype(str)
+                .itertuples(index=False, name=None)
+            )
             all_uuids = sorted(u for u in df["uuid"].unique().tolist() if u)
             all_profiles = sorted(df["profile"].dropna().astype(str).unique().tolist())
             all_tp_sizes = sorted(df["TP"].dropna().unique().tolist())
@@ -12255,17 +12327,20 @@ def main():
             url_accelerators = []
             url_models = []
             url_versions = []
+            url_version_label_pairs = decode_version_label_pairs(
+                query_params.get("version_labels")
+            )
             url_labels = []
             url_uuids = []
             url_profile = None
             url_tp_sizes = []
 
             if "accelerators" in query_params:
-                url_accelerators = [
-                    acc.strip()
-                    for acc in query_params["accelerators"].split(",")
-                    if acc.strip() in all_accelerators
-                ]
+                url_accelerators = parse_accelerator_values(
+                    query_params["accelerators"],
+                    all_accelerators,
+                    ACCELERATOR_DISPLAY_NAMES,
+                )
 
             if "models" in query_params:
                 url_models = [
@@ -12274,15 +12349,22 @@ def main():
                     if model.strip() in all_models
                 ]
 
-            if "versions" in query_params:
-                url_versions = [
-                    ver.strip()
-                    for ver in query_params["versions"].split(",")
-                    if ver.strip() in all_versions
-                ]
-
             if "labels" in query_params:
                 url_labels = parse_filter_values(query_params["labels"], all_labels)
+
+            if "versions" in query_params:
+                url_versions, inferred_version_label_pairs = (
+                    parse_version_filter_values(
+                        query_params["versions"],
+                        all_versions,
+                        all_version_label_pairs,
+                        include_default_for_exact=not bool(
+                            url_labels or url_version_label_pairs
+                        ),
+                    )
+                )
+                if not url_version_label_pairs:
+                    url_version_label_pairs = inferred_version_label_pairs
 
             if "uuids" in query_params:
                 url_uuids = parse_filter_values(query_params["uuids"], all_uuids)
@@ -12443,6 +12525,7 @@ def main():
                 url_accelerators,
                 url_models,
                 url_versions,
+                url_version_label_pairs,
                 url_labels,
                 url_uuids,
                 url_profile,
@@ -12617,6 +12700,7 @@ def main():
                 url_accelerators,
                 url_models,
                 url_versions,
+                url_version_label_pairs,
                 url_labels,
                 url_uuids,
                 url_profile,
@@ -12633,9 +12717,6 @@ def main():
                 url_spec_decoding,
                 url_prefix_caching,
             ) = decode_filters_from_url()
-            url_version_label_pairs = decode_version_label_pairs(
-                st.query_params.get("version_labels")
-            )
             url_appearance_colors = {
                 key: value
                 for key, value in decode_query_mapping(

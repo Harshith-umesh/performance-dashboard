@@ -77,6 +77,12 @@ def split_legacy_version(version):
         return raw_version, DEFAULT_LABEL
 
     prefix = _VERSION_PREFIXES[match.group("prefix").lower()]
+    if prefix == "RHAIIS" and tuple(
+        int(part) for part in re.findall(r"\d+", match.group("release"))
+    ) >= (3, 6):
+        # RHAIIS 3.6+ build tags such as -fast1 are part of the version.
+        return raw_version, DEFAULT_LABEL
+
     if match.start() == 0:
         release = f"{prefix}-{match.group('release')}"
     else:
@@ -137,6 +143,59 @@ def normalize_taxonomy_columns(df):
     return result
 
 
+def run_identity(df):
+    """Return the run key used to group rows in a comparison slice."""
+    run_ids = (
+        df["uuid"].fillna("").astype(str).str.strip()
+        if "uuid" in df.columns
+        else pd.Series("", index=df.index, dtype="string")
+    )
+    if "guidellm_start_time_ms" in df.columns:
+        start_times = pd.to_numeric(df["guidellm_start_time_ms"], errors="coerce")
+    else:
+        start_times = pd.Series(float("nan"), index=df.index)
+
+    return run_ids.mask(
+        run_ids.eq(""), "legacy:" + start_times.astype("string").fillna("unknown")
+    )
+
+
+def latest_run_rows(df):
+    """Keep the latest run's rows from an already-filtered comparison slice."""
+    if df.empty:
+        return df
+
+    run_ids = run_identity(df)
+    if "guidellm_start_time_ms" in df.columns:
+        start_times = pd.to_numeric(df["guidellm_start_time_ms"], errors="coerce")
+    else:
+        start_times = pd.Series(float("nan"), index=df.index)
+
+    if run_ids.eq("legacy:unknown").all() and start_times.isna().all():
+        # shortcut: no ID/time means no run boundary; add a run ID at ingestion.
+        return df
+
+    run_stats = (
+        pd.DataFrame(
+            {
+                "run_id": run_ids.to_numpy(),
+                "start_time": start_times.to_numpy(),
+                "position": range(len(df)),
+            }
+        )
+        .groupby("run_id", sort=False)
+        .agg(start_time=("start_time", "max"), position=("position", "max"))
+    )
+    if run_stats["start_time"].isna().any():
+        latest_run_id = run_stats.sort_values("position", kind="stable").index[-1]
+    else:
+        latest_run_id = (
+            run_stats.sort_values(["start_time", "position"], kind="stable")
+            .index[-1]
+        )
+    return df.iloc[(run_ids.eq(latest_run_id)).to_numpy().nonzero()[0]]
+
+
 def filter_taxonomy(df, versions=None, labels=None, uuids=None):
     """Apply the optional version/label/run filters to a DataFrame."""
     result = df
@@ -194,6 +253,80 @@ def parse_filter_values(raw_value, available_values):
         for value in str(raw_value).split(",")
         if value.strip() in available_values
     ]
+
+
+def parse_accelerator_values(raw_value, available_values, display_names):
+    """Resolve exact accelerator values and the legacy NVIDIA vendor alias."""
+    # shortcut: new short-form NVIDIA keys need a display-name entry to match this alias.
+    if not raw_value:
+        return []
+    available_values = list(available_values)
+    available_set = set(available_values)
+    resolved = []
+    for value in str(raw_value).split(","):
+        value = value.strip()
+        if value in available_set:
+            resolved.append(value)
+        elif value.casefold() == "nvidia":
+            resolved.extend(
+                accelerator
+                for accelerator in available_values
+                if (
+                    str(display_names.get(accelerator, accelerator)).casefold()
+                    == "nvidia"
+                    or str(display_names.get(accelerator, accelerator))
+                    .casefold()
+                    .startswith("nvidia ")
+                )
+            )
+    return list(dict.fromkeys(resolved))
+
+
+def parse_version_filter_values(
+    raw_value,
+    available_versions,
+    available_version_label_pairs,
+    *,
+    include_default_for_exact=False,
+):
+    """Resolve exact versions and older URLs with labels embedded in versions."""
+    if not raw_value:
+        return [], []
+
+    available_versions = set(available_versions)
+    available_pairs = {tuple(pair) for pair in available_version_label_pairs}
+    versions = []
+    inferred_pairs = []
+    exact_versions = []
+    for value in str(raw_value).split(","):
+        value = value.strip()
+        if not value:
+            continue
+        if value in available_versions:
+            if value not in versions:
+                versions.append(value)
+            exact_versions.append(value)
+            continue
+
+        version, label = split_legacy_version(value)
+        pair = (str(version), str(label))
+        if (
+            version != value
+            and version in available_versions
+            and pair in available_pairs
+        ):
+            if version not in versions:
+                versions.append(version)
+            if pair not in inferred_pairs:
+                inferred_pairs.append(pair)
+
+    if include_default_for_exact and inferred_pairs:
+        for version in exact_versions:
+            pair = (version, DEFAULT_LABEL)
+            if pair in available_pairs and pair not in inferred_pairs:
+                inferred_pairs.append(pair)
+
+    return versions, inferred_pairs
 
 
 def sync_selected_options(previous, available, *, select_all=False):
