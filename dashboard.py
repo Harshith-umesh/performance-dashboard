@@ -3838,6 +3838,14 @@ def render_performance_plots_section(filtered_df, per_turn_df=None, use_expander
             _sort_cols.append("DP")
         filtered_df_sorted = filtered_df.sort_values(_sort_cols).copy()
 
+        def _env_vars_hover_data(plot_data):
+            if "env_vars" not in plot_data.columns:
+                return None
+            has_values = (
+                plot_data["env_vars"].fillna("").astype(str).str.strip().ne("").any()
+            )
+            return {"env_vars": True} if has_values else None
+
         # Build per-turn plot df with run_identifier (same suffixes as filtered_df)
         per_turn_plot_df = pd.DataFrame()
         if per_turn_df is not None and not per_turn_df.empty:
@@ -4066,8 +4074,10 @@ def render_performance_plots_section(filtered_df, per_turn_df=None, use_expander
                         "turn_index": "Turn",
                         y_axis: y_axis_display_label,
                         "_plot_label": "Run | Concurrency",
+                        "env_vars": "Environment Variables",
                     },
                     template="plotly_white_light",
+                    hover_data=_env_vars_hover_data(_pt_valid),
                 )
                 fig.update_xaxes(
                     tickmode="array",
@@ -4094,8 +4104,10 @@ def render_performance_plots_section(filtered_df, per_turn_df=None, use_expander
                     x_axis: x_axis_label,
                     y_axis: y_axis_display_label,
                     "run_identifier": "Run",
+                    "env_vars": "Environment Variables",
                 },
                 template="plotly_white_light",
+                hover_data=_env_vars_hover_data(filtered_df_sorted),
                 category_orders={
                     "run_identifier": filtered_df_sorted["run_identifier"]
                     .unique()
@@ -10222,20 +10234,41 @@ def render_runtime_configs_section(filtered_df, use_expander=True):
             st.subheader("⚙️ Runtime Server Configs Used")
         if "runtime_args" in filtered_df.columns:
             st.markdown(
-                "**Runtime configurations for your current filter selections:**"
+                "**Runtime arguments and environment variables for your current filter selections:**"
             )
             st.info(
-                "📊 **Column Legend**: Shows the server runtime arguments used for each Model + Accelerator + Version + TP combination that matches your current filters."
+                "📊 **Column Legend**: Shows the server runtime arguments and configured environment variables for each Model + Accelerator + Version + TP combination that matches your current filters."
             )
 
-            unique_configs = filtered_df.drop_duplicates(
-                subset=["model", "accelerator", "version", "TP"]
+            has_environment_variables = (
+                "env_vars" in filtered_df.columns
+                and filtered_df["env_vars"]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+                .ne("")
+                .any()
             )
+            config_keys = ["model", "accelerator", "version", "TP"]
+            if has_environment_variables:
+                config_keys.append("env_vars")
+            unique_configs = filtered_df.drop_duplicates(subset=config_keys)
 
             if not unique_configs.empty:
-                display_runtime_df = unique_configs[
-                    ["model", "accelerator", "version", "TP", "runtime_args"]
-                ].copy()
+                config_columns = [
+                    "model",
+                    "accelerator",
+                    "version",
+                    "TP",
+                    "runtime_args",
+                ]
+                if has_environment_variables:
+                    config_columns.append("env_vars")
+                display_runtime_df = unique_configs[config_columns].copy()
+                if has_environment_variables:
+                    display_runtime_df["env_vars"] = (
+                        display_runtime_df["env_vars"].fillna("").astype(str)
+                    )
                 display_runtime_df = display_runtime_df.rename(
                     columns={
                         "model": "Model",
@@ -10243,6 +10276,7 @@ def render_runtime_configs_section(filtered_df, use_expander=True):
                         "version": "Version",
                         "TP": "TP",
                         "runtime_args": "Runtime Arguments",
+                        "env_vars": "Environment Variables",
                     }
                 )
 
@@ -10274,38 +10308,44 @@ def render_runtime_configs_section(filtered_df, use_expander=True):
                     max(len(df) * row_height + header_height + padding, 150), 600
                 )
 
+                table_columns = [
+                    "Config #",
+                    "Model",
+                    "Accelerator",
+                    "Version",
+                    "TP",
+                    "Runtime Arguments",
+                ]
+                table_column_config = {
+                    "Config #": st.column_config.NumberColumn(
+                        "Config No", width=80, pinned=True
+                    ),
+                    "Model": st.column_config.TextColumn(
+                        "Model", width=380, pinned=True
+                    ),
+                    "Accelerator": st.column_config.TextColumn(
+                        "Accelerator", width=80, pinned=True
+                    ),
+                    "Version": st.column_config.TextColumn(
+                        "Version", width=120, pinned=True
+                    ),
+                    "TP": st.column_config.NumberColumn("TP", width=60),
+                    "Runtime Arguments": st.column_config.TextColumn(
+                        "Runtime Args", width=1800
+                    ),
+                }
+                if has_environment_variables:
+                    table_columns.append("Environment Variables")
+                    table_column_config["Environment Variables"] = (
+                        st.column_config.TextColumn("Environment Variables", width=900)
+                    )
+
                 st.dataframe(
-                    df[
-                        [
-                            "Config #",
-                            "Model",
-                            "Accelerator",
-                            "Version",
-                            "TP",
-                            "Runtime Arguments",
-                        ]
-                    ],
+                    df[table_columns],
                     use_container_width=True,
                     hide_index=True,
                     height=dynamic_height,
-                    column_config={
-                        "Config #": st.column_config.NumberColumn(
-                            "Config No", width=80, pinned=True
-                        ),
-                        "Model": st.column_config.TextColumn(
-                            "Model", width=380, pinned=True
-                        ),
-                        "Accelerator": st.column_config.TextColumn(
-                            "Accelerator", width=80, pinned=True
-                        ),
-                        "Version": st.column_config.TextColumn(
-                            "Version", width=120, pinned=True
-                        ),
-                        "TP": st.column_config.NumberColumn("TP", width=60),
-                        "Runtime Arguments": st.column_config.TextColumn(
-                            "Runtime Args", width=1800
-                        ),
-                    },
+                    column_config=table_column_config,
                 )
 
                 options = [
@@ -10316,7 +10356,7 @@ def render_runtime_configs_section(filtered_df, use_expander=True):
                     for i, r in df.iterrows()
                 ]
                 idx = st.selectbox(
-                    "Show full runtime args for:",
+                    "Show full runtime configuration for:",
                     options,
                     format_func=lambda x: x[1],
                     key="runtime_config_selector",
@@ -10325,7 +10365,15 @@ def render_runtime_configs_section(filtered_df, use_expander=True):
                 )[0]
 
                 args = df.loc[idx, "Runtime Arguments"]
+                st.markdown("**Runtime Arguments**")
                 st.code(args, language="bash")
+                if has_environment_variables:
+                    env_vars = df.loc[idx, "Environment Variables"]
+                    st.markdown("**Environment Variables**")
+                    if env_vars:
+                        st.code(env_vars, language="json")
+                    else:
+                        st.caption("No environment variables configured for this run.")
 
             else:
                 st.warning(
