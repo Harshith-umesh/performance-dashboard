@@ -28,6 +28,7 @@ from dashboard_styles import (
     initialize_session_state,
     initialize_streamlit_config,
 )
+from env_vars import format_env_vars_hover, normalize_env_vars_value
 
 # Set global Plotly template: white background with white hover labels
 _light_hover = go.layout.Template(
@@ -3837,19 +3838,30 @@ def render_performance_plots_section(filtered_df, per_turn_df=None, use_expander
         if _has_dp_data:
             _sort_cols.append("DP")
         filtered_df_sorted = filtered_df.sort_values(_sort_cols).copy()
+        if "env_vars" in filtered_df_sorted.columns:
+            filtered_df_sorted["env_vars_preview"] = filtered_df_sorted["env_vars"].map(
+                format_env_vars_hover
+            )
 
         def _env_vars_hover_data(plot_data):
-            if "env_vars" not in plot_data.columns:
+            if (
+                "env_vars" not in plot_data.columns
+                or "env_vars_preview" not in plot_data
+            ):
                 return None
             has_values = (
-                plot_data["env_vars"].fillna("").astype(str).str.strip().ne("").any()
+                plot_data["env_vars"].map(normalize_env_vars_value).ne("").any()
             )
-            return {"env_vars": True} if has_values else None
+            return {"env_vars_preview": True} if has_values else None
 
         # Build per-turn plot df with run_identifier (same suffixes as filtered_df)
         per_turn_plot_df = pd.DataFrame()
         if per_turn_df is not None and not per_turn_df.empty:
             per_turn_plot_df = per_turn_df.copy()
+            if "env_vars" in per_turn_plot_df.columns:
+                per_turn_plot_df["env_vars_preview"] = per_turn_plot_df["env_vars"].map(
+                    format_env_vars_hover
+                )
             per_turn_plot_df["run_identifier"] = (
                 per_turn_plot_df["accelerator"].fillna("?")
                 + " | "
@@ -4074,7 +4086,7 @@ def render_performance_plots_section(filtered_df, per_turn_df=None, use_expander
                         "turn_index": "Turn",
                         y_axis: y_axis_display_label,
                         "_plot_label": "Run | Concurrency",
-                        "env_vars": "Environment Variables",
+                        "env_vars_preview": "Environment Variables",
                     },
                     template="plotly_white_light",
                     hover_data=_env_vars_hover_data(_pt_valid),
@@ -4104,7 +4116,7 @@ def render_performance_plots_section(filtered_df, per_turn_df=None, use_expander
                     x_axis: x_axis_label,
                     y_axis: y_axis_display_label,
                     "run_identifier": "Run",
-                    "env_vars": "Environment Variables",
+                    "env_vars_preview": "Environment Variables",
                 },
                 template="plotly_white_light",
                 hover_data=_env_vars_hover_data(filtered_df_sorted),
@@ -10240,19 +10252,17 @@ def render_runtime_configs_section(filtered_df, use_expander=True):
                 "📊 **Column Legend**: Shows the server runtime arguments and configured environment variables for each Model + Accelerator + Version + TP combination that matches your current filters."
             )
 
-            has_environment_variables = (
-                "env_vars" in filtered_df.columns
-                and filtered_df["env_vars"]
-                .fillna("")
-                .astype(str)
-                .str.strip()
-                .ne("")
-                .any()
-            )
+            config_source = filtered_df.copy()
+            has_environment_variables = "env_vars" in config_source.columns
+            if has_environment_variables:
+                config_source["env_vars"] = config_source["env_vars"].map(
+                    normalize_env_vars_value
+                )
+                has_environment_variables = config_source["env_vars"].ne("").any()
             config_keys = ["model", "accelerator", "version", "TP"]
             if has_environment_variables:
                 config_keys.append("env_vars")
-            unique_configs = filtered_df.drop_duplicates(subset=config_keys)
+            unique_configs = config_source.drop_duplicates(subset=config_keys)
 
             if not unique_configs.empty:
                 config_columns = [
