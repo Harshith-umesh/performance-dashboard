@@ -568,7 +568,7 @@ def get_app_css():
     .vllm-scorecard { position: relative; }
 
     /* ── Merged scorecard + expander card ── */
-    div[data-testid="stVerticalBlock"]:has(.vllm-merge-marker) {
+    div[data-testid="stVerticalBlock"]:has(.vllm-merge-marker):not(:has(div[data-testid="stVerticalBlock"] .vllm-merge-marker)) {
         border-radius: 12px;
         padding: 0;
         margin: 0.75rem 0;
@@ -576,39 +576,45 @@ def get_app_css():
         gap: 0 !important;
         overflow: hidden;
     }
-    div[data-testid="stVerticalBlock"]:has(.vllm-merge-green) {
+    div[data-testid="stVerticalBlock"]:has(.vllm-merge-marker):not(:has(div[data-testid="stVerticalBlock"] .vllm-merge-marker)):has(.vllm-merge-green) {
         border: 1px solid #bbf7d0;
         background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
     }
-    div[data-testid="stVerticalBlock"]:has(.vllm-merge-yellow) {
+    div[data-testid="stVerticalBlock"]:has(.vllm-merge-marker):not(:has(div[data-testid="stVerticalBlock"] .vllm-merge-marker)):has(.vllm-merge-yellow) {
         border: 1px solid #fde68a;
         background: linear-gradient(135deg, #fefce8 0%, #fef9c3 100%);
     }
-    div[data-testid="stVerticalBlock"]:has(.vllm-merge-red) {
+    div[data-testid="stVerticalBlock"]:has(.vllm-merge-marker):not(:has(div[data-testid="stVerticalBlock"] .vllm-merge-marker)):has(.vllm-merge-red) {
         border: 1px solid #fca5a5;
         background: linear-gradient(135deg, #fef2f2 0%, #fecaca 100%);
     }
-    div[data-testid="stVerticalBlock"]:has(.vllm-merge-marker) .vllm-scorecard {
+    div[data-testid="stVerticalBlock"]:has(.vllm-merge-marker):not(:has(div[data-testid="stVerticalBlock"] .vllm-merge-marker)) .vllm-scorecard {
         border: none !important;
         background: none !important;
         box-shadow: none !important;
         border-radius: 0 !important;
         margin: 0 !important;
     }
-    div[data-testid="stVerticalBlock"]:has(.vllm-merge-marker) [data-testid="stExpander"] {
+    div[data-testid="stVerticalBlock"]:has(.vllm-merge-marker):not(:has(div[data-testid="stVerticalBlock"] .vllm-merge-marker)) [data-testid="stExpander"] {
         border: none !important;
         background: transparent !important;
         margin: 0 !important;
         border-radius: 0 !important;
         box-shadow: none !important;
     }
-    div[data-testid="stVerticalBlock"]:has(.vllm-merge-green) [data-testid="stExpander"] > details > summary {
+    div[data-testid="stVerticalBlock"]:has(.vllm-merge-marker):not(:has(div[data-testid="stVerticalBlock"] .vllm-merge-marker)) [data-testid="stExpander"] > details,
+    div[data-testid="stVerticalBlock"]:has(.vllm-merge-marker):not(:has(div[data-testid="stVerticalBlock"] .vllm-merge-marker)) [data-testid="stExpander"] > details > summary,
+    div[data-testid="stVerticalBlock"]:has(.vllm-merge-marker):not(:has(div[data-testid="stVerticalBlock"] .vllm-merge-marker)) [data-testid="stExpander"] > details > div,
+    div[data-testid="stVerticalBlock"]:has(.vllm-merge-marker):not(:has(div[data-testid="stVerticalBlock"] .vllm-merge-marker)) [data-testid="stExpander"] > details > div > div {
+        background: transparent !important;
+    }
+    div[data-testid="stVerticalBlock"]:has(.vllm-merge-marker):not(:has(div[data-testid="stVerticalBlock"] .vllm-merge-marker)):has(.vllm-merge-green) [data-testid="stExpander"] > details > summary {
         border-top: 1px solid #bbf7d040;
     }
-    div[data-testid="stVerticalBlock"]:has(.vllm-merge-yellow) [data-testid="stExpander"] > details > summary {
+    div[data-testid="stVerticalBlock"]:has(.vllm-merge-marker):not(:has(div[data-testid="stVerticalBlock"] .vllm-merge-marker)):has(.vllm-merge-yellow) [data-testid="stExpander"] > details > summary {
         border-top: 1px solid #fde68a40;
     }
-    div[data-testid="stVerticalBlock"]:has(.vllm-merge-red) [data-testid="stExpander"] > details > summary {
+    div[data-testid="stVerticalBlock"]:has(.vllm-merge-marker):not(:has(div[data-testid="stVerticalBlock"] .vllm-merge-marker)):has(.vllm-merge-red) [data-testid="stExpander"] > details > summary {
         border-top: 1px solid #fca5a540;
     }
 
