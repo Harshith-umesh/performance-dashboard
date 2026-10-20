@@ -98,6 +98,7 @@ OVERVIEW_CURRENT = "RHAIIS-3.5-GA"
 OVERVIEW_PREVIOUS = "RHAIIS-3.5-EA2"
 OVERVIEW_UPSTREAM = "vLLM-0.24.0"
 OVERVIEW_ADDITIONAL: list[str] = []
+OVERVIEW_PARITY_ACCELERATORS = ("H200", "B200", "MI355X")
 
 # Ordered list of back-to-back release pairs for the Overview dropdown.
 # Most recent pair first. `upstream` / `additional` can be None / [] when
@@ -173,6 +174,7 @@ ACCELERATOR_DISPLAY_NAMES = {
     "H200": "NVIDIA H200",
     "MI300X": "AMD MI300X",
     "B200": "NVIDIA B200",
+    "MI355X": "AMD MI355X",
     "B300": "NVIDIA B300",
     "TPU": "Google TPU",
     "Spyre": "IBM Spyre",
@@ -1011,14 +1013,14 @@ def _compute_overview_data(
             "results": results,
         }
 
-    # --- vLLM comparison (H200 only) ---
+    # --- vLLM comparison on supported accelerators with matching data ---
     common_vllm = sorted(_combos(df_curr) & _combos(df_vllm))
     vllm_results = []
     tput_cfg = metrics_cfg["Throughput"]
     ttft_cfg = metrics_cfg["TTFT P95"]
     itl_cfg = metrics_cfg["ITL P95"]
     for model, tp, accel, profile, cisl_osl, dset, sdec, pcache, turns in common_vllm:
-        if accel != "H200":
+        if accel not in OVERVIEW_PARITY_ACCELERATORS:
             continue
         mask_c = (
             (df_curr["model"] == model)
@@ -1085,39 +1087,8 @@ def _compute_overview_data(
         )
 
     vllm_with_data = [r for r in vllm_results if r.get("pct") is not None]
-    vllm_wins = sum(1 for r in vllm_with_data if r["better"] and not r["similar"])
-    vllm_ties = sum(1 for r in vllm_with_data if r["similar"])
-    vllm_losses = sum(1 for r in vllm_with_data if not r["better"] and not r["similar"])
-    vllm_pcts = [r["pct"] for r in vllm_with_data]
-    vllm_avg = float(np.mean(vllm_pcts)) if vllm_pcts else 0.0
-    vllm_n_models = len({r["model"] for r in vllm_with_data})
-    vllm_n_profiles = len({r["profile"] for r in vllm_with_data})
-
     vllm_ttft_data = [r for r in vllm_results if r.get("ttft_pct") is not None]
-    vllm_ttft_avg = (
-        float(np.mean([r["ttft_pct"] for r in vllm_ttft_data]))
-        if vllm_ttft_data
-        else 0.0
-    )
-    vllm_ttft_wins = sum(
-        1 for r in vllm_ttft_data if r["ttft_better"] and not r["ttft_similar"]
-    )
-    vllm_ttft_ties = sum(1 for r in vllm_ttft_data if r["ttft_similar"])
-    vllm_ttft_losses = sum(
-        1 for r in vllm_ttft_data if not r["ttft_better"] and not r["ttft_similar"]
-    )
-
     vllm_itl_data = [r for r in vllm_results if r.get("itl_pct") is not None]
-    vllm_itl_avg = (
-        float(np.mean([r["itl_pct"] for r in vllm_itl_data])) if vllm_itl_data else 0.0
-    )
-    vllm_itl_wins = sum(
-        1 for r in vllm_itl_data if r["itl_better"] and not r["itl_similar"]
-    )
-    vllm_itl_ties = sum(1 for r in vllm_itl_data if r["itl_similar"])
-    vllm_itl_losses = sum(
-        1 for r in vllm_itl_data if not r["itl_better"] and not r["itl_similar"]
-    )
 
     # --- New in this release (current + additional + upstream vs previous) ---
     release_versions = [CURRENT] + additional + ([VLLM] if VLLM else [])
@@ -1167,22 +1138,8 @@ def _compute_overview_data(
         "accel_rollup": accel_rollup,
         "family_rollup": family_rollup,
         "combo_results": combo_results,
-        "vllm_avg": vllm_avg,
-        "vllm_wins": vllm_wins,
-        "vllm_ties": vllm_ties,
-        "vllm_losses": vllm_losses,
-        "vllm_n_models": vllm_n_models,
-        "vllm_n_profiles": vllm_n_profiles,
         "vllm_results": vllm_with_data,
-        "vllm_ttft_avg": vllm_ttft_avg,
-        "vllm_ttft_wins": vllm_ttft_wins,
-        "vllm_ttft_ties": vllm_ttft_ties,
-        "vllm_ttft_losses": vllm_ttft_losses,
         "vllm_ttft_data": vllm_ttft_data,
-        "vllm_itl_avg": vllm_itl_avg,
-        "vllm_itl_wins": vllm_itl_wins,
-        "vllm_itl_ties": vllm_itl_ties,
-        "vllm_itl_losses": vllm_itl_losses,
         "vllm_itl_data": vllm_itl_data,
         "new_models": new_models,
         "new_accels": new_accels,
@@ -2724,27 +2681,38 @@ Changes within ±{NEUTRAL_THRESHOLD_PCT:.0f} % are not counted as losses.<br><br
     else:
         st.markdown("### Upstream vLLM Parity")
         _vllm_ver = ov_upstream.replace("vLLM-", "v")
+        _parity_accelerator_names = ", ".join(
+            _accel_display(accelerator) for accelerator in OVERVIEW_PARITY_ACCELERATORS
+        )
         st.caption(
             f"{ov_current} builds on vLLM {_vllm_ver} — the goal is matching or exceeding upstream "
-            "performance. Compared on NVIDIA H200 across common models. "
+            f"performance. Comparisons are shown separately for {_parity_accelerator_names} "
+            "when matching benchmark configurations are available. "
             '"At parity" means within 5 %.'
         )
-        vllm_avg_cls = "val-green" if data["vllm_avg"] >= 0 else "val-red"
-        parity_count = data["vllm_ties"] + data["vllm_wins"]
-        total_compared = data["vllm_wins"] + data["vllm_ties"] + data["vllm_losses"]
-        parity_pct = (parity_count / total_compared * 100) if total_compared else 0
-        parity_cls = (
-            "val-green"
-            if parity_pct >= 80
-            else ("val-amber" if parity_pct >= 60 else "val-red")
-        )
-        hue = (
-            "green"
-            if data["vllm_losses"] == 0
-            else ("yellow" if data["vllm_losses"] <= data["vllm_wins"] else "red")
-        )
-        vllm_ttft_avg_cls = "val-green" if data["vllm_ttft_avg"] <= 0 else "val-red"
-        vllm_itl_avg_cls = "val-green" if data["vllm_itl_avg"] <= 0 else "val-red"
+        available_vllm_accels = [
+            accelerator
+            for accelerator in OVERVIEW_PARITY_ACCELERATORS
+            if any(r["accelerator"] == accelerator for r in data["vllm_results"])
+        ]
+        unavailable_vllm_accels = [
+            accelerator
+            for accelerator in OVERVIEW_PARITY_ACCELERATORS
+            if accelerator not in available_vllm_accels
+        ]
+        if not available_vllm_accels:
+            st.info(
+                "No matching RHAIIS and upstream vLLM runs were found for this release pair "
+                f"on {_parity_accelerator_names}."
+            )
+        elif unavailable_vllm_accels:
+            missing_accel_names = ", ".join(
+                _accel_display(accelerator) for accelerator in unavailable_vllm_accels
+            )
+            st.caption(
+                "No matching configurations are available for "
+                f"{missing_accel_names} in this release pair."
+            )
 
         def _vllm_indicator(pct, better, similar):
             if better and not similar:
@@ -2967,34 +2935,84 @@ Changes within ±{NEUTRAL_THRESHOLD_PCT:.0f} % are not counted as losses.<br><br
                     f"Geometric mean uses: {conc_str}."
                 )
 
-        sorted_vllm = sorted(
-            data["vllm_results"], key=lambda x: x["pct"] or 0, reverse=True
-        )
-
-        vllm_table_rows = ""
-        behind_rows = []
-        for idx, r in enumerate(sorted_vllm):
-            is_behind = (
-                not r.get("better")
-                and not r.get("similar")
-                and r.get("pct") is not None
+        for parity_accel in available_vllm_accels:
+            accelerator_results = [
+                r for r in data["vllm_results"] if r["accelerator"] == parity_accel
+            ]
+            accelerator_wins = sum(
+                1 for r in accelerator_results if r["better"] and not r["similar"]
             )
-            vllm_table_rows += (
-                f"<tr>"
-                f'<td style="text-align:left"><b>{r["short_name"]}</b></td>'
-                f'<td style="text-align:center">{r["tp"]}</td>'
-                f'<td style="text-align:left">{r["profile"]}</td>'
-                f"{_vllm_metric_cell(r['pct'], r.get('better'), r.get('similar'))}"
-                f"{_vllm_metric_cell(r.get('ttft_pct'), r.get('ttft_better'), r.get('ttft_similar'))}"
-                f"{_vllm_metric_cell(r.get('itl_pct'), r.get('itl_better'), r.get('itl_similar'))}"
-                f"</tr>"
+            accelerator_ties = sum(1 for r in accelerator_results if r["similar"])
+            accelerator_losses = sum(
+                1 for r in accelerator_results if not r["better"] and not r["similar"]
             )
-            if is_behind:
-                behind_rows.append((idx, r))
+            total_compared = len(accelerator_results)
+            parity_pct = (accelerator_wins + accelerator_ties) / total_compared * 100
+            parity_cls = (
+                "val-green"
+                if parity_pct >= 80
+                else ("val-amber" if parity_pct >= 60 else "val-red")
+            )
+            hue = (
+                "green"
+                if accelerator_losses == 0
+                else ("yellow" if accelerator_losses <= accelerator_wins else "red")
+            )
+            accelerator_tput_avg = float(
+                np.mean([r["pct"] for r in accelerator_results])
+            )
+            accelerator_ttft_data = [
+                r for r in data["vllm_ttft_data"] if r["accelerator"] == parity_accel
+            ]
+            accelerator_itl_data = [
+                r for r in data["vllm_itl_data"] if r["accelerator"] == parity_accel
+            ]
+            accelerator_ttft_avg = (
+                float(np.mean([r["ttft_pct"] for r in accelerator_ttft_data]))
+                if accelerator_ttft_data
+                else 0.0
+            )
+            accelerator_itl_avg = (
+                float(np.mean([r["itl_pct"] for r in accelerator_itl_data]))
+                if accelerator_itl_data
+                else 0.0
+            )
+            vllm_avg_cls = "val-green" if accelerator_tput_avg >= 0 else "val-red"
+            vllm_ttft_avg_cls = "val-green" if accelerator_ttft_avg <= 0 else "val-red"
+            vllm_itl_avg_cls = "val-green" if accelerator_itl_avg <= 0 else "val-red"
+            accelerator_n_models = len({r["model"] for r in accelerator_results})
+            accelerator_n_profiles = len({r["profile"] for r in accelerator_results})
+            sorted_vllm = sorted(
+                accelerator_results,
+                key=lambda x: x["pct"] or 0,
+                reverse=True,
+            )
 
-        st.markdown(
-            f"""<div class="vllm-scorecard vllm-hue-{hue}"><details><summary>
-<div class="vllm-scorecard-title">{ov_current} vs vLLM {_vllm_ver} (NVIDIA H200)</div>
+            vllm_table_rows = ""
+            behind_rows = []
+            for idx, r in enumerate(sorted_vllm):
+                is_behind = not r.get("better") and not r.get("similar")
+                vllm_table_rows += (
+                    f"<tr>"
+                    f'<td style="text-align:left"><b>{r["short_name"]}</b></td>'
+                    f'<td style="text-align:center">{r["tp"]}</td>'
+                    f'<td style="text-align:left">{r["profile"]}</td>'
+                    f"{_vllm_metric_cell(r['pct'], r.get('better'), r.get('similar'))}"
+                    f"{_vllm_metric_cell(r.get('ttft_pct'), r.get('ttft_better'), r.get('ttft_similar'))}"
+                    f"{_vllm_metric_cell(r.get('itl_pct'), r.get('itl_better'), r.get('itl_similar'))}"
+                    f"</tr>"
+                )
+                if is_behind:
+                    behind_rows.append((idx, r))
+
+            with st.container():
+                st.markdown(
+                    f'<div class="vllm-merge-marker vllm-merge-{hue}"></div>',
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    f"""<div class="vllm-scorecard vllm-hue-{hue}">
+<div class="vllm-scorecard-title">{ov_current} vs vLLM {_vllm_ver} ({_accel_display(parity_accel)})</div>
 <div class="vllm-stat-row">
 <div class="vllm-stat">
 <div class="vllm-stat-label">At or Above Parity</div>
@@ -3002,69 +3020,77 @@ Changes within ±{NEUTRAL_THRESHOLD_PCT:.0f} % are not counted as losses.<br><br
 </div>
 <div class="vllm-stat">
 <div class="vllm-stat-label">Avg Throughput Δ</div>
-<div class="vllm-stat-value {vllm_avg_cls}">{data["vllm_avg"]:+.1f} %</div>
+<div class="vllm-stat-value {vllm_avg_cls}">{accelerator_tput_avg:+.1f} %</div>
 </div>
 <div class="vllm-stat">
 <div class="vllm-stat-label">Avg TTFT P95 Δ</div>
-<div class="vllm-stat-value {vllm_ttft_avg_cls}">{data["vllm_ttft_avg"]:+.1f} %</div>
+<div class="vllm-stat-value {vllm_ttft_avg_cls}">{accelerator_ttft_avg:+.1f} %</div>
 </div>
 <div class="vllm-stat">
 <div class="vllm-stat-label">Avg ITL P95 Δ</div>
-<div class="vllm-stat-value {vllm_itl_avg_cls}">{data["vllm_itl_avg"]:+.1f} %</div>
+<div class="vllm-stat-value {vllm_itl_avg_cls}">{accelerator_itl_avg:+.1f} %</div>
 </div>
 <div class="vllm-stat">
 <div class="vllm-stat-label">Ahead</div>
-<div class="vllm-stat-value val-green">{data["vllm_wins"]}</div>
+<div class="vllm-stat-value val-green">{accelerator_wins}</div>
 </div>
 <div class="vllm-stat">
 <div class="vllm-stat-label">At Parity</div>
-<div class="vllm-stat-value val-amber">{data["vllm_ties"]}</div>
+<div class="vllm-stat-value val-amber">{accelerator_ties}</div>
 </div>
 <div class="vllm-stat">
 <div class="vllm-stat-label">Behind</div>
-<div class="vllm-stat-value val-red">{data["vllm_losses"]}</div>
+<div class="vllm-stat-value val-red">{accelerator_losses}</div>
 </div>
-                <div class="vllm-stat">
-                    <div class="vllm-stat-label">Models Compared</div>
-                    <div class="vllm-stat-value">{data["vllm_n_models"]}</div>
-                </div>
-                <div class="vllm-stat">
-                    <div class="vllm-stat-label">Workload Profiles</div>
-                    <div class="vllm-stat-value">{data["vllm_n_profiles"]}</div>
-                </div>
-            </div>
-        </summary>
-        <div class="overview-card-detail">
-            Per-model delta (geometric mean, NVIDIA H200):
-            <table class="vllm-parity-table">
-            <thead><tr>
-                <th style="text-align:left">Model</th>
-                <th style="text-align:center">TP</th>
-                <th style="text-align:left">Profile</th>
-                <th style="text-align:right">Throughput Δ</th>
-                <th style="text-align:right">TTFT P95 Δ</th>
-                <th style="text-align:right">ITL P95 Δ</th>
-            </tr></thead>
-            <tbody>{vllm_table_rows}</tbody>
-            </table>
-            <br>
-            🟢 Ahead (&gt; 5 % better) · 🟡 At Parity (within ± 5 %) · 🔴 Behind (&gt; 5 % worse)<br>
-            <i>For latency metrics (TTFT/ITL), lower is better — a negative Δ means RHAIIS is faster.</i>
-        </div></details></div>""",
-            unsafe_allow_html=True,
-        )
+<div class="vllm-stat">
+<div class="vllm-stat-label">Models Compared</div>
+<div class="vllm-stat-value">{accelerator_n_models}</div>
+</div>
+<div class="vllm-stat">
+<div class="vllm-stat-label">Workload Profiles</div>
+<div class="vllm-stat-value">{accelerator_n_profiles}</div>
+</div>
+</div>
+</div>""",
+                    unsafe_allow_html=True,
+                )
 
-        if behind_rows:
-            st.caption("Compare models behind parity:")
-            cols = st.columns(len(behind_rows) + max(len(behind_rows), 2))
-            for i, (idx, r) in enumerate(behind_rows):
-                with cols[i]:
-                    if st.button(
-                        f"📊 {r['short_name']}",
-                        key=f"vllm_cmp_{idx}",
-                        help=f"{r['short_name']} (TP{r['tp']}) {r['profile']}",
-                    ):
-                        _show_vllm_compare_dialog(r)
+                with st.expander("Per-model breakdown and comparisons", expanded=False):
+                    st.markdown(
+                        f"""<div class="overview-card-detail">
+Per-model delta (geometric mean, {_accel_display(parity_accel)}):
+<table class="vllm-parity-table">
+<thead><tr>
+    <th style="text-align:left">Model</th>
+    <th style="text-align:center">TP</th>
+    <th style="text-align:left">Profile</th>
+    <th style="text-align:right">Throughput Δ</th>
+    <th style="text-align:right">TTFT P95 Δ</th>
+    <th style="text-align:right">ITL P95 Δ</th>
+</tr></thead>
+<tbody>{vllm_table_rows}</tbody>
+</table>
+<br>
+🟢 Ahead (&gt; 5 % better) · 🟡 At Parity (within ± 5 %) · 🔴 Behind (&gt; 5 % worse)<br>
+<i>For latency metrics (TTFT/ITL), lower is better — a negative Δ means RHAIIS is faster.</i>
+</div>""",
+                        unsafe_allow_html=True,
+                    )
+
+                    if behind_rows:
+                        st.caption(
+                            f"Compare {_accel_display(parity_accel)} models behind parity:"
+                        )
+                        cols = st.columns(len(behind_rows) + max(len(behind_rows), 2))
+                        accelerator_key = parity_accel.lower().replace(" ", "_")
+                        for i, (idx, r) in enumerate(behind_rows):
+                            with cols[i]:
+                                if st.button(
+                                    f"📊 {r['short_name']}",
+                                    key=f"vllm_cmp_{accelerator_key}_{idx}",
+                                    help=f"{r['short_name']} (TP{r['tp']}) {r['profile']}",
+                                ):
+                                    _show_vllm_compare_dialog(r)
 
         st.markdown("---")
 
@@ -5802,8 +5828,18 @@ def render_compare_versions_summary_section(df, use_expander=True):
                 else None
             )
 
+        version_1_rows = df[df["version"] == version_1]
+        version_2_rows = df[df["version"] == version_2]
+        common_accelerators = set(
+            version_1_rows["accelerator"].dropna().unique()
+        ) & set(version_2_rows["accelerator"].dropna().unique())
+        available_accelerators = sorted(common_accelerators)
+        if not available_accelerators:
+            st.info("No accelerators have data for both selected versions.")
+            return
+
         with col3:
-            # Default to H200 if available
+            # Default to H200 when it has data for both selected versions.
             accel_default_index = 0
             if "H200" in available_accelerators:
                 accel_default_index = available_accelerators.index("H200")
@@ -5817,12 +5853,36 @@ def render_compare_versions_summary_section(df, use_expander=True):
                 args=("compare_versions_summary_expanded",),
             )
 
+        version_1_accelerator_rows = version_1_rows[
+            version_1_rows["accelerator"] == selected_accelerator
+        ]
+        version_2_accelerator_rows = version_2_rows[
+            version_2_rows["accelerator"] == selected_accelerator
+        ]
+        common_profiles = set(
+            version_1_accelerator_rows["profile"].dropna().unique()
+        ) & set(version_2_accelerator_rows["profile"].dropna().unique())
+        available_profiles = sorted(common_profiles)
+        if not available_profiles:
+            st.info(
+                "No ISL/OSL profiles have data for both selected versions "
+                f"on {selected_accelerator}."
+            )
+            return
+
         with col4:
             # Set default profile to "Profile A: Balanced (1k/1k)"
             default_profile = "Profile A: Balanced (1k/1k)"
             profile_default_index = 0
             if default_profile in available_profiles:
                 profile_default_index = available_profiles.index(default_profile)
+            if (
+                st.session_state.get("compare_summary_profile")
+                not in available_profiles
+            ):
+                st.session_state["compare_summary_profile"] = available_profiles[
+                    profile_default_index
+                ]
 
             selected_profile = st.selectbox(
                 "Select ISL/OSL Profile",
@@ -5850,9 +5910,13 @@ def render_compare_versions_summary_section(df, use_expander=True):
             ]
             mt_pairs = sorted(p for p in mt_temp["multiturn_isl_osl"].unique() if p)
             if mt_pairs:
+                mt_default_index = (
+                    mt_pairs.index("128/128") if "128/128" in mt_pairs else 0
+                )
                 compare_mt_isl_osl = st.selectbox(
                     "Select ISL/OSL",
                     options=mt_pairs,
+                    index=mt_default_index,
                     key="compare_summary_mt_isl_osl",
                     on_change=keep_expander_open,
                     args=("compare_versions_summary_expanded",),
@@ -6789,189 +6853,39 @@ def render_compare_versions_summary_section(df, use_expander=True):
                 f"🟡 Similar Performance (< 5% difference)"
             )
 
-            # Detailed model comparison sections
+            # Show source rows matching the Compare Versions selections.
+            filtered_data = pd.concat([df_v1, df_v2], ignore_index=True)
+            if selected_conc_set:
+                filtered_data = filtered_data[
+                    filtered_data["intended concurrency"].isin(selected_conc_set)
+                ]
+            sort_columns = [
+                column
+                for column in ("model", "version", "intended concurrency")
+                if column in filtered_data.columns
+            ]
+            if sort_columns:
+                filtered_data = filtered_data.sort_values(sort_columns).reset_index(
+                    drop=True
+                )
+
             st.markdown("---")
-            st.markdown("### 📋 Detailed Model Comparisons")
-            st.markdown("*Click on a model to see detailed metrics comparison*")
-
-            for idx, (model, v1_cfg, v2_cfg) in enumerate(comparison_pairs, 1):
-                model_short = model.split("/")[-1] if "/" in model else model
-
-                v1_model_data = _slice_by_config(df_v1, model, v1_cfg)
-                v2_model_data = _slice_by_config(df_v2, model, v2_cfg)
-
-                v1_p_label = _config_label(v1_cfg)
-                v2_p_label = _config_label(v2_cfg)
-                if v1_p_label == v2_p_label:
-                    expander_parallelism = v1_p_label
-                else:
-                    expander_parallelism = f"{v1_p_label} → {v2_p_label}"
-
-                # Get common concurrencies
-                v1_concurrencies = set(
-                    v1_model_data["intended concurrency"].dropna().unique()
-                )
-                v2_concurrencies = set(
-                    v2_model_data["intended concurrency"].dropna().unique()
-                )
-                common_conc = v1_concurrencies.intersection(v2_concurrencies)
-
-                if not common_conc:
-                    continue
-
-                v1_common = v1_model_data[
-                    v1_model_data["intended concurrency"].isin(common_conc)
-                ]
-                v2_common = v2_model_data[
-                    v2_model_data["intended concurrency"].isin(common_conc)
-                ]
-
-                # Find peak throughput info for each version
-                v1_peak_idx = v1_common["output_tok/sec"].idxmax()
-                v2_peak_idx = v2_common["output_tok/sec"].idxmax()
-
-                v1_peak_throughput = v1_common.loc[v1_peak_idx, "output_tok/sec"]
-                v2_peak_throughput = v2_common.loc[v2_peak_idx, "output_tok/sec"]
-                v1_peak_conc = int(v1_common.loc[v1_peak_idx, "intended concurrency"])
-                v2_peak_conc = int(v2_common.loc[v2_peak_idx, "intended concurrency"])
-
-                # Get total throughput at peak
-                v1_total_throughput = v1_common.loc[v1_peak_idx, "total_tok/sec"]
-                v2_total_throughput = v2_common.loc[v2_peak_idx, "total_tok/sec"]
-
-                # For latency, compare at the same concurrency (min of the two peaks)
-                # so the comparison is fair (latency scales with load)
-                latency_conc = min(v1_peak_conc, v2_peak_conc)
-                v1_at_latency_conc = v1_common[
-                    v1_common["intended concurrency"] == latency_conc
-                ]
-                v2_at_latency_conc = v2_common[
-                    v2_common["intended concurrency"] == latency_conc
-                ]
-
-                if not v1_at_latency_conc.empty and not v2_at_latency_conc.empty:
-                    v1_lat_row = v1_at_latency_conc.iloc[0]
-                    v2_lat_row = v2_at_latency_conc.iloc[0]
-                else:
-                    v1_lat_row = v1_common.loc[v1_peak_idx]
-                    v2_lat_row = v2_common.loc[v2_peak_idx]
-                    latency_conc = None
-
-                # Get latency metrics at the common concurrency
-                v1_e2e_latency = v1_lat_row["request_latency_median"]
-                v2_e2e_latency = v2_lat_row["request_latency_median"]
-
-                v1_ttft = v1_lat_row["ttft_p95"]
-                v2_ttft = v2_lat_row["ttft_p95"]
-
-                v1_itl = v1_lat_row["itl_p95"]
-                v2_itl = v2_lat_row["itl_p95"]
-
-                latency_conc_label = (
-                    f" at {latency_conc} concurrent users"
-                    if latency_conc is not None
-                    else ""
-                )
-
-                def format_value(val, unit="", decimals=0, round_up=False):
-                    """Format a numeric value with optional unit."""
-                    if pd.isna(val):
-                        return "N/A"
-                    if round_up:
-                        import math
-
-                        if decimals == 0:
-                            return f"~{int(math.ceil(val)):,}{unit}"
-                        else:
-                            factor = 10**decimals
-                            rounded_val = math.ceil(val * factor) / factor
-                            return f"~{rounded_val:,.{decimals}f}{unit}"
-                    if decimals == 0:
-                        return f"~{int(val):,}{unit}"
-                    return f"~{val:,.{decimals}f}{unit}"
-
-                def get_winner_text(v1_val, v2_val, higher_is_better, metric_name):
-                    """Generate winner text for a metric."""
-                    if pd.isna(v1_val) or pd.isna(v2_val) or v2_val == 0:
-                        return "N/A"
-
-                    pct_diff = ((v1_val - v2_val) / v2_val) * 100
-
-                    if higher_is_better:
-                        if pct_diff > 5:
-                            return f"{version_1} has +{abs(pct_diff):.1f}% higher {metric_name}"
-                        elif pct_diff < -5:
-                            return f"{version_2} has +{abs(pct_diff):.1f}% higher {metric_name}"
-                        else:
-                            return f"Similar (~{abs(pct_diff):.1f}% difference)"
-                    else:
-                        if pct_diff < -5:
-                            return f"{version_1} has {abs(pct_diff):.1f}% lower {metric_name}"
-                        elif pct_diff > 5:
-                            return f"{version_2} has {abs(pct_diff):.1f}% lower {metric_name}"
-                        else:
-                            return f"Similar (~{abs(pct_diff):.1f}% difference)"
-
-                with st.expander(f"{idx}. {model_short} ({expander_parallelism})"):
-                    detail_rows = [
-                        {
-                            "Metric": "Peak Output Throughput (output tok/s)",
-                            version_1: f"{format_value(v1_peak_throughput)} tok/s at {v1_peak_conc} concurrent users",
-                            version_2: f"{format_value(v2_peak_throughput)} tok/s at {v2_peak_conc} concurrent users",
-                            "Difference/Winner": get_winner_text(
-                                v1_peak_throughput,
-                                v2_peak_throughput,
-                                True,
-                                "peak output throughput",
-                            ),
-                        },
-                        {
-                            "Metric": "Total Throughput (input + output tok/s)",
-                            version_1: f"{format_value(v1_total_throughput)} tok/s at {v1_peak_conc} concurrent users",
-                            version_2: f"{format_value(v2_total_throughput)} tok/s at {v2_peak_conc} concurrent users",
-                            "Difference/Winner": get_winner_text(
-                                v1_total_throughput,
-                                v2_total_throughput,
-                                True,
-                                "total throughput",
-                            ),
-                        },
-                        {
-                            "Metric": f"Median E2E Latency{latency_conc_label}",
-                            version_1: f"{format_value(v1_e2e_latency, 's', 0, round_up=True)}",
-                            version_2: f"{format_value(v2_e2e_latency, 's', 0, round_up=True)}",
-                            "Difference/Winner": get_winner_text(
-                                v1_e2e_latency, v2_e2e_latency, False, "E2E latency"
-                            ),
-                        },
-                        {
-                            "Metric": f"TTFT P95{latency_conc_label}",
-                            version_1: f"{format_value(v1_ttft / 1000, 's', 2, round_up=True)}"
-                            if pd.notna(v1_ttft)
-                            else "N/A",
-                            version_2: f"{format_value(v2_ttft / 1000, 's', 2, round_up=True)}"
-                            if pd.notna(v2_ttft)
-                            else "N/A",
-                            "Difference/Winner": get_winner_text(
-                                v1_ttft, v2_ttft, False, "P95 TTFT"
-                            ),
-                        },
-                        {
-                            "Metric": f"ITL P95{latency_conc_label}",
-                            version_1: f"{format_value(v1_itl, 'ms', 0, round_up=True)}",
-                            version_2: f"{format_value(v2_itl, 'ms', 0, round_up=True)}",
-                            "Difference/Winner": get_winner_text(
-                                v1_itl, v2_itl, False, "P95 ITL"
-                            ),
-                        },
-                    ]
-
-                    detail_df = pd.DataFrame(detail_rows)
-                    st.dataframe(
-                        detail_df,
-                        use_container_width=True,
-                        hide_index=True,
-                    )
+            st.markdown("### 📋 Filtered Data")
+            st.caption(
+                f"{len(filtered_data):,} rows match the selected Compare Versions filters."
+            )
+            st.dataframe(
+                filtered_data,
+                use_container_width=True,
+                hide_index=True,
+            )
+            st.download_button(
+                label="📥 Download Filtered Data as CSV",
+                data=filtered_data.to_csv(index=False).encode("utf-8"),
+                file_name="compare_versions_filtered_data.csv",
+                mime="text/csv",
+                key="compare_versions_filtered_data_csv_download",
+            )
         else:
             st.info("No comparison data available for the selected filters.")
 
@@ -11199,8 +11113,8 @@ def render_confidentiality_notice():
     if selected_view != "vLLM CPU Dashboard":
         gpu_infer_text = (
             "<b>For GPU sizing guidance and cost analysis, see "
-            '<a href="https://nb-qbits.github.io/gpuinfer/" target="_blank" '
-            'style="color:#92400e;text-decoration:underline;">GPU Infer</a>.</b>'
+            '<a href="https://configiq.dev/" target="_blank" '
+            'style="color:#92400e;text-decoration:underline;">ConfigIQ</a>.</b>'
         )
     st.markdown(
         '<div style="background-color: rgba(245,158,11,0.08); border-left: 3px solid #f59e0b; '
