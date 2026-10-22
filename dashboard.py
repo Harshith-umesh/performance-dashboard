@@ -26,6 +26,7 @@ import streamlit as st
 import streamlit.components.v1 as _stc
 from plotly.subplots import make_subplots
 
+from dashboard_observability import add_observability_links, build_compare_filtered_rows
 from dashboard_styles import (
     apply_theme_css,
     get_app_css,
@@ -7500,21 +7501,79 @@ def render_compare_versions_summary_section(df, use_expander=True):
                 f"🟡 Similar Performance (< 5% difference)"
             )
 
-            # Show source rows matching the Compare Versions selections.
-            filtered_data = pd.concat([df_v1, df_v2], ignore_index=True)
-            if selected_conc_set:
-                filtered_data = filtered_data[
-                    filtered_data["intended concurrency"].isin(selected_conc_set)
-                ]
+            # Show only source rows represented by the model/config pairs in the
+            # comparison table, using the same latest-run slices as its metrics.
+            filtered_data = build_compare_filtered_rows(
+                df_v1,
+                df_v2,
+                comparison_pairs,
+                _slice_by_config,
+                selected_conc_set,
+                label_1=compare_label_1,
+                label_2=compare_label_2,
+            )
+            filtered_data = add_observability_links(
+                filtered_data, MLFLOW_BASE_URL, MLFLOW_WORKSPACE
+            )
+
+            for internal_column in ("mlflow_run_id", "mlflow_experiment_id"):
+                if internal_column in filtered_data.columns:
+                    filtered_data = filtered_data.drop(columns=[internal_column])
+
             sort_columns = [
                 column
-                for column in ("model", "version", "intended concurrency")
+                for column in (
+                    "model",
+                    "version",
+                    "label",
+                    "intended concurrency",
+                )
                 if column in filtered_data.columns
             ]
             if sort_columns:
                 filtered_data = filtered_data.sort_values(sort_columns).reset_index(
                     drop=True
                 )
+
+            display_columns = filtered_data.columns.tolist()
+            if "label" in display_columns and "version" in display_columns:
+                display_columns.remove("label")
+                display_columns.insert(display_columns.index("version") + 1, "label")
+            if "grafana_metrics_link" in display_columns:
+                display_columns.remove("grafana_metrics_link")
+                insert_after = "TP" if "TP" in display_columns else "label"
+                insert_index = (
+                    display_columns.index(insert_after) + 1
+                    if insert_after in display_columns
+                    else len(display_columns)
+                )
+                display_columns.insert(insert_index, "grafana_metrics_link")
+            if "mlflow_link" in display_columns:
+                display_columns.remove("mlflow_link")
+                grafana_index = (
+                    display_columns.index("grafana_metrics_link") + 1
+                    if "grafana_metrics_link" in display_columns
+                    else len(display_columns)
+                )
+                display_columns.insert(grafana_index, "mlflow_link")
+            filtered_data = filtered_data[display_columns]
+
+            filtered_data_column_config = {
+                "label": st.column_config.TextColumn(
+                    "Label",
+                    help="Selected benchmark label for this release.",
+                ),
+                "grafana_metrics_link": st.column_config.LinkColumn(
+                    "Grafana Metrics",
+                    help="Open the Grafana dashboard for this benchmark run.",
+                    display_text="View Metrics 📊",
+                ),
+                "mlflow_link": st.column_config.LinkColumn(
+                    "MLflow",
+                    help="Open the MLflow artifacts for this benchmark run.",
+                    display_text="View Run 🧪",
+                ),
+            }
 
             st.markdown("---")
             st.markdown("### 📋 Filtered Data")
@@ -7525,6 +7584,7 @@ def render_compare_versions_summary_section(df, use_expander=True):
                 filtered_data,
                 use_container_width=True,
                 hide_index=True,
+                column_config=filtered_data_column_config,
             )
             st.download_button(
                 label="📥 Download Filtered Data as CSV",
@@ -11261,178 +11321,10 @@ def render_filtered_data_section(filtered_df, per_turn_df=None, use_expander=Tru
             convert_epoch_to_date, axis=1
         )
 
-        # Add Grafana metrics link for rows with timestamp data
-        # Dashboard IDs for different accelerators
-        # H200 has two dashboards: old (before Jan 1, 2026) and new (Jan 1, 2026 onwards)
-        GRAFANA_DASHBOARDS = {
-            "H200_OLD": {
-                "dashboard_id": "6475e6106c33fe",
-                "dashboard_name": "vllm-2b-dcgm-metrics-psap-8xh200-2",
-            },
-            "H200_NEW": {
-                "dashboard_id": "7a3b910e7e827c",
-                "dashboard_name": "vllm-2b-dcgm-metrics-psap-rhaiis-h200",
-            },
-            "H200_HERA": {
-                "dashboard_id": "cd77e3aa2b40e0",
-                "dashboard_name": "vllm-2b-dcgm-metrics-rhaiis-ibm-dc-h200",
-            },
-            "H200_HERA2": {
-                "dashboard_id": "psap-hera-dashboard",
-                "dashboard_name": "vllm-2b-dcgm-metrics-psap-hera-h200",
-            },
-            "MI300X": {
-                "dashboard_id": "amd-ods-az-amd-01",
-                "dashboard_name": "vllm-2b-rocm-gpu-metrics-ods-az-amd-01",
-            },
-            "B200": {
-                "dashboard_id": "psap-b200-mlperf",
-                "dashboard_name": "vllm-2b-dcgm-metrics-psap-b200-mlperf",
-            },
-            "H200_ZEUS2": {
-                "dashboard_id": "d35f19c8f56250",
-                "dashboard_name": "vllm-2b-dcgm-metrics-psap-zeus-syd",
-            },
-            "B200_PIRATE": {
-                "dashboard_id": "b200-pirate-vllm-dcgm",
-                "dashboard_name": "vllm-2b-dcgm-metrics-b200-pirate",
-            },
-        }
-
-        _SGLANG_H200_DASHBOARD = {
-            "dashboard_id": "sglang-dcgm-metrics-psap-rhaiis-h200",
-            "dashboard_name": "sglang-2b-dcgm-metrics-psap-rhaiis-h200",
-            "extra_params": "&var-cluster_name=$__all&var-model_name=$__all",
-        }
-        SGLANG_GRAFANA_DASHBOARDS = {
-            "H200": _SGLANG_H200_DASHBOARD,
-            "H200_HERA2": _SGLANG_H200_DASHBOARD,
-            "H200_ZEUS2": _SGLANG_H200_DASHBOARD,
-        }
-
-        # Jan 1, 2026 00:00:00 UTC in milliseconds
-        H200_DASHBOARD_CUTOFF_MS = 1767225600000
-
-        def _is_hera_run(run_name):
-            """Check if a run belongs to the H200 Hera cluster."""
-            if not isinstance(run_name, str):
-                return False
-            upper = run_name.upper()
-            return upper.startswith("H200-HERA-") or upper.startswith("H200_HERA-")
-
-        def _is_hera2_run(run_name):
-            """Check if a run belongs to the H200 Hera2 cluster."""
-            if not isinstance(run_name, str):
-                return False
-            upper = run_name.upper()
-            return upper.startswith("H200-HERA2-") or upper.startswith("H200_HERA2-")
-
-        def _is_zeus2_run(run_name):
-            """Check if a run belongs to the H200 ZEUS2 cluster."""
-            if not isinstance(run_name, str):
-                return False
-            upper = run_name.upper()
-            return upper.startswith("H200-ZEUS2-") or upper.startswith("H200_ZEUS2-")
-
-        def create_grafana_link(row):
-            """Create Grafana dashboard link if timestamps are available."""
-            start_time = row.get("guidellm_start_time_ms")
-            end_time = row.get("guidellm_end_time_ms")
-            uuid = row.get("uuid")
-            accelerator = row.get("accelerator", "")
-            run_name = row.get("run", "")
-            version = row.get("version", "")
-
-            # Only create link if all required fields are present and not NaN
-            if (
-                pd.notna(start_time)
-                and pd.notna(end_time)
-                and pd.notna(uuid)
-                and start_time != ""
-                and end_time != ""
-                and uuid != ""
-            ):
-                # Convert to integers (in case they're floats)
-                start_ms = int(start_time)
-                end_ms = int(end_time)
-
-                # Determine which dashboard to use based on accelerator, cluster, and date
-                if _is_hera2_run(run_name):
-                    dashboard_key = "H200_HERA2"
-                elif _is_hera_run(run_name):
-                    dashboard_key = "H200_HERA"
-                elif _is_zeus2_run(run_name):
-                    dashboard_key = "H200_ZEUS2"
-                elif accelerator == "H200":
-                    if start_ms >= H200_DASHBOARD_CUTOFF_MS:
-                        dashboard_key = "H200_NEW"
-                    else:
-                        dashboard_key = "H200_OLD"
-                elif accelerator in GRAFANA_DASHBOARDS:
-                    dashboard_key = accelerator
-                else:
-                    return None
-
-                is_sglang = isinstance(version, str) and version.lower().startswith(
-                    "sglang"
-                )
-                if is_sglang:
-                    sglang_key = dashboard_key
-                    if (
-                        sglang_key not in SGLANG_GRAFANA_DASHBOARDS
-                        and sglang_key.startswith("H200")
-                    ):
-                        sglang_key = "H200"
-                    if sglang_key in SGLANG_GRAFANA_DASHBOARDS:
-                        dashboard_config = SGLANG_GRAFANA_DASHBOARDS[sglang_key]
-                    else:
-                        return None
-                else:
-                    dashboard_config = GRAFANA_DASHBOARDS[dashboard_key]
-
-                dashboard_id = dashboard_config["dashboard_id"]
-                dashboard_name = dashboard_config["dashboard_name"]
-                extra_params = dashboard_config.get("extra_params", "")
-
-                # Build URL with accelerator-specific dashboard
-                base_url = "https://grafana-psap-obs.apps.ocp4.intlab.redhat.com"
-                return (
-                    f"{base_url}/d/{dashboard_id}/{dashboard_name}"
-                    f"?orgId=1&from={start_ms}&to={end_ms}"
-                    f"&timezone=browser&var-deployment_uuid={uuid}"
-                    f"&var-deployment_pod_name=$__all&var-rate_interval=1m"
-                    f"{extra_params}"
-                )
-            return None
-
-        display_filtered_df["grafana_metrics_link"] = display_filtered_df.apply(
-            create_grafana_link, axis=1
+        # Use the shared link builder also used by Compare Versions.
+        display_filtered_df = add_observability_links(
+            display_filtered_df, MLFLOW_BASE_URL, MLFLOW_WORKSPACE
         )
-
-        # Add MLflow link for rows with mlflow_run_id
-        if MLFLOW_BASE_URL:
-
-            def create_mlflow_link(row):
-                run_id = row.get("mlflow_run_id")
-                experiment_id = row.get("mlflow_experiment_id")
-                if (
-                    pd.notna(run_id)
-                    and run_id != ""
-                    and pd.notna(experiment_id)
-                    and experiment_id != ""
-                ):
-                    exp_id = int(float(experiment_id))
-                    return (
-                        f"{MLFLOW_BASE_URL}/#/experiments/{exp_id}"
-                        f"/runs/{run_id}/artifacts?workspace={MLFLOW_WORKSPACE}"
-                    )
-                return None
-
-            display_filtered_df["mlflow_link"] = display_filtered_df.apply(
-                create_mlflow_link, axis=1
-            )
-        else:
-            display_filtered_df["mlflow_link"] = None
 
         display_filtered_df["view_logs_link"] = False
 
