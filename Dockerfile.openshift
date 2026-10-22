@@ -14,6 +14,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy only necessary application files
 COPY dashboard.py .
+COPY dashboard_observability.py .
 COPY dashboard_styles.py .
 COPY dashboard_taxonomy.py .
 COPY mlperf_datacenter.py .
