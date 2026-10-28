@@ -22,10 +22,6 @@ import os
 import pickle  # nosec B403 - Used only for trusted benchmark datasets
 import sys
 
-SHAREGPT_DATASET_REVISION = "192ab2185289094fc556ec8ce5ce1e8e587154ca"
-SWEBENCH_DATASET_REVISION = "6ec7bb89b9342f664a54a6e0a6ea6501d3437cc2"
-GEMMA_TOKENIZER_REVISION = "4d7ae4984b7db7de8f8457170b3f1a419ee76d52"
-
 
 def process_deepseek_r1():
     """Process deepseek-r1 dataset (pickle format with tok_input_len and tok_ref_output_len)."""
@@ -155,7 +151,7 @@ def process_sharegpt():
             repo_id="anon8231489123/ShareGPT_Vicuna_unfiltered",
             filename="ShareGPT_V3_unfiltered_cleaned_split.json",
             repo_type="dataset",
-            revision=SHAREGPT_DATASET_REVISION,
+            revision="192ab2185289094fc556ec8ce5ce1e8e587154ca",
         )
 
         with open(json_path, encoding="utf-8") as f:
@@ -262,13 +258,13 @@ def process_swebench_lite():
         ds = load_dataset(
             "princeton-nlp/SWE-bench_Lite",
             split="test",
-            revision=SWEBENCH_DATASET_REVISION,
+            revision="6ec7bb89b9342f664a54a6e0a6ea6501d3437cc2",
         )
 
         print(f"  Tokenizing {len(ds):,} problem statements...")
         tokenizer = AutoTokenizer.from_pretrained(
             "google/gemma-4-26B-A4B-it",
-            revision=GEMMA_TOKENIZER_REVISION,
+            revision="4d7ae4984b7db7de8f8457170b3f1a419ee76d52",
         )
 
         input_lengths = []
